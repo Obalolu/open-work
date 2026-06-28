@@ -1,0 +1,138 @@
+# Chapter 1 — Introduction
+# Matches reference: 7 sections (1.1–1.7)
+name: "Introduction"
+
+sections:
+  - id: "1.1"
+    title: "Introduction"
+    paragraphs: 5
+    word_count: 800
+    instructions: >
+      Open with a rhetorical question that draws the reader into the topic
+      from a relatable, everyday perspective. Do NOT use "Imagine a scenario"
+      or "Have you ever wondered" — use a direct, specific question.
+      After the hook, define the key variables of the study (independent,
+      dependent, and any mediators/moderators). Explain what each concept
+      means in plain language before giving the formal academic definition.
+      State the purpose of the study clearly: what this research examines,
+      among whom, and why it matters. End with a sentence that transitions
+      into the background section. Every claim must cite a source.
+      Use (Author, Year) citation format inline, not {cite_XXX} placeholders.
+      Do NOT use tables or bullet lists in this section — flowing prose only.
+
+  - id: "1.2"
+    title: "Background of study"
+    paragraphs: 5
+    word_count: 700
+    instructions: >
+      Provide the broader literature context for the study. Start with the
+      wider field, then narrow to the specific topic. Discuss each key
+      variable with citations — what previous researchers have found, how
+      concepts are defined, and what theoretical frameworks apply. Build
+      from broad context to the specific study context (e.g., from global
+      trends to the Nigerian university setting). Each paragraph should
+      focus on one theme. Use smooth transitions between paragraphs.
+      Do NOT use tables or bullet lists — flowing prose only.
+      Use (Author, Year) citation format inline.
+
+  - id: "1.3"
+    title: "Statement of the problem"
+    paragraphs: 4
+    word_count: 600
+    instructions: >
+      Articulate the research gap. Start with what is known (general problem),
+      then identify what is missing (specific gap). Discuss why existing
+      research is insufficient — methodological limitations, population gaps,
+      contextual limitations. Move from the general problem to the specific
+      gap in the target context (e.g., Nigerian universities). End with a
+      clear statement of what this study seeks to address.
+      Do NOT use tables or bullet lists — flowing prose only.
+      Use (Author, Year) citation format inline.
+
+  - id: "1.4"
+    title: "Objectives of the study"
+    paragraphs: 1
+    word_count: 200
+    format: "numbered_list"
+    instructions: >
+      State the main objective first as a single sentence. Then list 3-4
+      specific objectives as numbered items. Each objective should start
+      with a verb (Examine, Determine, Assess, Evaluate) and be specific
+      and measurable. Include demographic variables if relevant (e.g.,
+      gender, social media usage).
+      Format example:
+      The main objective of this study is to [main objective].
+      The specific objectives are to:
+      1. [First objective]
+      2. [Second objective]
+      3. [Third objective]
+      4. [Fourth objective]
+
+  - id: "1.5"
+    title: "Significance of the study"
+    paragraphs: 4
+    word_count: 500
+    instructions: >
+      Explain who benefits from this research and how. Each paragraph
+      should address a different stakeholder group: (1) educators and
+      university administrators, (2) counselors and mental health
+      professionals, (3) policymakers and government agencies, (4)
+      researchers and the academic community. For each group, explain
+      what the findings can contribute and how they might use the results.
+      Do NOT use tables or bullet lists — flowing prose only.
+      Use (Author, Year) citation format inline where relevant.
+
+  - id: "1.6"
+    title: "Scope of study"
+    paragraphs: 2
+    word_count: 300
+    instructions: >
+      Define the boundaries of the study clearly. Cover: (1) geographic
+      delimitation (which institution/location), (2) population
+      delimitation (who is included and excluded), (3) temporal
+      delimitation (when the study is conducted), (4) variable
+      delimitation (which variables are examined and which are not).
+      Be specific about exclusions and justify them briefly.
+      Do NOT use tables or bullet lists — flowing prose only.
+
+  - id: "1.7"
+    title: "Operational definitions of variables of study"
+    paragraphs: 4
+    word_count: 400
+    format: "definitions"
+    instructions: >
+      Define each key variable with its measurement instrument. Use this
+      exact format for each variable:
+
+      Variable Name: Definition of the variable in context. In this study,
+      it will be measured using the [Instrument Name] developed by
+      (Author, Year). The scale assesses [what it measures]. Higher scores
+      indicate [what higher scores mean].
+
+      Include definitions for: (1) the independent variable, (2) the
+      dependent variable, (3) any mediating/moderating variables,
+      (4) the target population.
+
+forbidden:
+  - "Imagine a scenario"
+  - "Have you ever wondered"
+  - "It is worth noting that"
+  - "In this paper, we will"
+  - "The purpose of this paper is"
+  - "This research aims to explore"
+  - "In today's world"
+  - "Delve into"
+  - "The realm of"
+  - "This underscores"
+  - "It is essential to recognize"
+  - "This real-world application"
+  - "The integration of"
+
+required:
+  - "Open with a specific rhetorical question"
+  - "All claims must cite specific studies using (Author, Year) format"
+  - "Define all key variables in section 1.1"
+  - "Use numbered list format for objectives in 1.4"
+  - "Include operational definitions with instrument names in 1.7"
+  - "Use active voice for at least 60% of sentences"
+  - "No tables or bullet lists in Chapter 1 — prose only"

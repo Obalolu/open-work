@@ -1,0 +1,42 @@
+# Chapter 2 — Literature Review
+name: "Literature Review"
+sections:
+  - id: "2.1"
+    title: "Theoretical Framework"
+    paragraphs: 3
+    word_count: 600
+    instructions: >
+      Present the foundational theories that underpin the research. Show how
+      different theoretical perspectives relate to each other and to your topic.
+      Include a comparison table of major theoretical approaches.
+
+  - id: "2.2"
+    title: "Empirical Studies"
+    paragraphs: 4
+    word_count: 800
+    instructions: >
+      Review key empirical studies organized thematically or chronologically.
+      For each study, discuss methodology, sample, key findings, and limitations.
+      Include a comparison table of studies with their methods and main findings.
+
+  - id: "2.3"
+    title: "Research Gaps"
+    paragraphs: 2
+    word_count: 400
+    instructions: >
+      Identify specific gaps in the existing literature. What questions remain
+      unanswered? What methodological limitations exist? Connect these gaps
+      directly to your research objectives.
+
+forbidden:
+  - "It is worth noting"
+  - "Delve into"
+  - "The landscape of"
+  - "A myriad of"
+  - "Furthermore"
+
+required:
+  - "At least one comparison table of studies"
+  - "Clear identification of research gaps"
+  - "Proper citation of all referenced works"
+  - "Logical flow from broad to specific"

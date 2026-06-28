@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# Build output
+.next/
+out/
+build/
+dist/
+*.egg-info/
+
+# Runtime data
+data/*.db
+.citation_cache.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Config (contains API keys)
+# ~/.config/open-work/config.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output (generated papers)
+output/
+
+# Temp
+.tmp/
+*.log

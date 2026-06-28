@@ -1,0 +1,19 @@
+# Example Job: AI in Healthcare Diagnostics
+name: "ai_healthcare_diagnostics"
+topic: "Impact of Artificial Intelligence on Healthcare Diagnostic Accuracy"
+paper_type: "literature_review"
+citation_style: "apa"
+target_audience: "graduate_students"
+
+research_queries:
+  - "artificial intelligence healthcare diagnostic accuracy"
+  - "deep learning medical imaging diagnosis"
+  - "machine learning clinical decision support"
+
+chapters:
+  - template: "chapters/chapter_1.yaml"
+    name: "Introduction"
+  - template: "chapters/chapter_2.yaml"
+    name: "Literature Review"
+  - template: "chapters/chapter_3.yaml"
+    name: "Methodology"

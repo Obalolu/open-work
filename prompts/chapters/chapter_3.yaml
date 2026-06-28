@@ -1,0 +1,39 @@
+# Chapter 3 — Methodology
+name: "Methodology"
+sections:
+  - id: "3.1"
+    title: "Research Design"
+    paragraphs: 3
+    word_count: 500
+    instructions: >
+      Describe and justify the overall research design. Explain why this design
+      is appropriate for answering the research questions. Discuss philosophical
+      underpinnings if relevant.
+
+  - id: "3.2"
+    title: "Data Collection"
+    paragraphs: 3
+    word_count: 500
+    instructions: >
+      Describe data sources, collection procedures, instruments, and sampling.
+      Ensure another researcher could replicate the process. Include details
+      on sample size, inclusion/exclusion criteria, and data collection timeline.
+
+  - id: "3.3"
+    title: "Analysis Approach"
+    paragraphs: 2
+    word_count: 400
+    instructions: >
+      Explain the analytical methods used. Justify why these methods are
+      appropriate. Mention any software or tools used. Discuss validity and
+      reliability measures.
+
+forbidden:
+  - "It is worth noting"
+  - "A myriad of"
+  - "Cutting-edge"
+
+required:
+  - "Sufficient detail for replication"
+  - "Justification for methodological choices"
+  - "Discussion of limitations"

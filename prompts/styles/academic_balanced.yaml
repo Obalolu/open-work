@@ -1,0 +1,38 @@
+# Writing Style — Academic Balanced
+# Not too academic, not too casual. Professional but accessible.
+
+tone: "professional but accessible"
+formality: 0.7
+temperature: 0.7
+preferred_voice: "active"
+introduction_style: "narrative_hook"
+max_bullet_points_per_section: 2
+
+forbidden_phrases:
+  - "delve into"
+  - "landscape"
+  - "realm"
+  - "tapestry"
+  - "pivotal"
+  - "synergy"
+  - "leverage"
+  - "utilize"
+  - "in order to"
+  - "facilitate"
+  - "endeavor"
+  - "myriad"
+  - "underscore"
+  - "furthermore"
+  - "moreover"
+  - "additionally"
+  - "consequently"
+  - "it is worth noting"
+  - "it is important to note"
+  - "in today's world"
+  - "in this day and age"
+  - "cutting-edge"
+  - "groundbreaking"
+  - "paradigm shift"
+  - "revolutionary"
+  - "unprecedented"
+  - "state-of-the-art"

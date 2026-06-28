@@ -1,0 +1,31 @@
+# Writing Style — Academic Formal
+# Traditional academic tone. Higher formality, more hedging.
+
+tone: "formal academic"
+formality: 0.9
+temperature: 0.6
+preferred_voice: "passive_where_appropriate"
+introduction_style: "standard"
+max_bullet_points_per_section: 1
+
+forbidden_phrases:
+  - "delve into"
+  - "landscape"
+  - "realm"
+  - "tapestry"
+  - "pivotal"
+  - "synergy"
+  - "leverage"
+  - "utilize"
+  - "in order to"
+  - "facilitate"
+  - "endeavor"
+  - "myriad"
+  - "underscore"
+  - "in today's world"
+  - "in this day and age"
+  - "cutting-edge"
+  - "groundbreaking"
+  - "paradigm shift"
+  - "revolutionary"
+  - "unprecedented"
