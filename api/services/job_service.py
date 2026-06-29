@@ -142,8 +142,9 @@ def sync_chapters_from_output(db: Session, job_id: str):
     chapters = db.query(Chapter).filter(Chapter.job_id == job_id).all()
     for ch in chapters:
         compiled_path = output_dir / f"chapter_{ch.chapter_number}_compiled.md"
+        v2_path = output_dir / f"chapter_{ch.chapter_number}_v2.md"
         raw_path = output_dir / f"chapter_{ch.chapter_number}.md"
-        target = compiled_path if compiled_path.exists() else raw_path
+        target = compiled_path if compiled_path.exists() else (v2_path if v2_path.exists() else raw_path)
 
         if target.exists():
             content = target.read_text(encoding="utf-8")

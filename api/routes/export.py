@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from api.services import chapter_service
 from src.config import get_output_dir
 
 router = APIRouter()

@@ -30,34 +30,45 @@ def get_research_sources(job_id: str, db: Session = Depends(get_db)):
     except Exception:
         return []
 
-    job_config = json.loads(job.config_json)
+    try:
+        job_config = json.loads(job.config_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        job_config = {}
     topic = job_config.get("topic", "")
 
     sources = []
     seen = set()
 
     for key, entry in cache.items():
-        if isinstance(entry, dict) and "papers" in entry:
-            cache_topic = entry.get("topic", "")
-            if topic and cache_topic and cache_topic != topic:
+        papers = []
+        if isinstance(entry, list):
+            papers = entry
+            if topic and key != topic:
                 continue
-            for paper in entry["papers"]:
-                pid = paper.get("paper_id", "")
-                if pid in seen:
-                    continue
-                seen.add(pid)
-                sources.append(SourceResponse(
-                    paper_id=pid,
-                    title=paper.get("title", ""),
-                    authors=paper.get("authors", []),
-                    year=paper.get("year"),
-                    venue=paper.get("venue", ""),
-                    abstract_summary=paper.get("abstract_summary", "")[:200],
-                    paper_url=paper.get("paper_url", ""),
-                    doi=paper.get("doi", ""),
-                    source_type=paper.get("source_type", ""),
-                    citation_count=paper.get("citation_count", 0),
-                    confidence=paper.get("confidence", 0.0),
-                ))
+        elif isinstance(entry, dict) and "papers" in entry:
+            papers = entry["papers"]
+        else:
+            continue
+
+        for paper in papers:
+            if not isinstance(paper, dict):
+                continue
+            pid = paper.get("paper_id", "") or paper.get("doi", "") or paper.get("url", paper.get("title", ""))
+            if pid in seen:
+                continue
+            seen.add(pid)
+            sources.append(SourceResponse(
+                paper_id=pid,
+                title=paper.get("title", ""),
+                authors=paper.get("authors", []),
+                year=paper.get("year"),
+                venue=paper.get("venue", paper.get("journal", "")),
+                abstract_summary=(paper.get("abstract_summary", "") or paper.get("abstract", ""))[:200],
+                paper_url=paper.get("paper_url", paper.get("url", "")),
+                doi=paper.get("doi", ""),
+                source_type=paper.get("source_type", ""),
+                citation_count=paper.get("citation_count", 0),
+                confidence=paper.get("confidence", 0.0),
+            ))
 
     return sources[:100]

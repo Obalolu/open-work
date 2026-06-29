@@ -24,6 +24,10 @@ export function usePolling(
 
   const startPolling = useCallback(() => {
     if (!jobId) return;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     setIsPolling(true);
     skippedIdle.current = false;
 

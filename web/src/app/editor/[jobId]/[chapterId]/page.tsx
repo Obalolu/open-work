@@ -341,9 +341,12 @@ function renderMarkdown(md: string): string {
       /\[(.+?)\]\((.+?)\)/g,
       (_, text, url) => `<a href="${sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`
     )
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
-    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+    .replace(/^- (.+)$/gm, "<li class='ul-item'>$1</li>")
+    .replace(/^(\d+)\. (.+)$/gm, "<li class='ol-item'>$2</li>")
+    .replace(/(<li class='ul-item'>[\s\S]*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+    .replace(/(<li class='ol-item'>[\s\S]*?<\/li>\n?)+/g, (match) => `<ol>${match}</ol>`)
+    .replace(/ class='ul-item'/g, "")
+    .replace(/ class='ol-item'/g, "")
     .replace(/\n\n/g, "</p><p>")
     .replace(/\n/g, "<br>");
 

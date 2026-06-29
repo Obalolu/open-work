@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-from pathlib import Path
-
 from fastapi import APIRouter
 
 from api.schemas import ProxyPoolStatus
-from src.config import get_project_root
+from src.config import CONFIG_DIR
 
 router = APIRouter()
 
 
 @router.get("/proxy/pool", response_model=ProxyPoolStatus)
 def get_proxy_pool_status():
-    config_path = Path.home() / ".config" / "open-work" / "config.toml"
+    config_path = CONFIG_DIR / "config.toml"
     proxies = []
     if config_path.exists():
         try:

@@ -11,6 +11,7 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [proxySuccess, setProxySuccess] = useState<boolean | null>(null);
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -41,11 +42,14 @@ export default function ConfigPage() {
       if (result.ok) {
         const prx = await api.proxy.status();
         setProxy(prx);
+        setProxySuccess(true);
         setProxyMsg("Proxy pool refreshed successfully");
       } else {
+        setProxySuccess(false);
         setProxyMsg(result.error || "Refresh failed");
       }
     } catch (e) {
+      setProxySuccess(false);
       setProxyMsg(e instanceof Error ? e.message : String(e));
     }
     setRefreshing(false);
@@ -155,7 +159,7 @@ export default function ConfigPage() {
             </button>
           </div>
           {proxyMsg && (
-            <p className={`text-sm mt-3 ${proxyMsg.includes("success") ? "text-green-600" : "text-red-600"}`} role="status">
+            <p className={`text-sm mt-3 ${proxySuccess ? "text-green-600" : "text-red-600"}`} role="status">
               {proxyMsg}
             </p>
           )}

@@ -7,6 +7,7 @@ import { useStore } from "@/stores/jobStore";
 import { usePolling } from "@/hooks/usePolling";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { StatCard } from "@/components/ui/StatCard";
 import type { GenerationStatus } from "@/lib/types";
 import {
   ArrowLeft,
@@ -39,9 +40,9 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        await fetchJob(jobId);
-      } catch {
+      await fetchJob(jobId);
+      const state = useStore.getState();
+      if (state.error && !state.currentJob) {
         setNotFound(true);
       }
     };
@@ -208,28 +209,6 @@ export default function JobDetailPage() {
               </div>
             </Link>
           ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-slate-50 rounded-lg">{icon}</div>
-        <div>
-          <p className="text-xl font-bold text-slate-900">{value}</p>
-          <p className="text-sm text-slate-500">{label}</p>
         </div>
       </div>
     </div>

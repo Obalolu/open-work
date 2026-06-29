@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import toml
 from fastapi import APIRouter
 
 from api.schemas import AppConfig, LLMConfig, ResearchConfig
@@ -24,6 +23,7 @@ def get_config():
         )
 
     try:
+        import toml
         cfg = toml.load(config_path)
     except Exception:
         return AppConfig(
@@ -65,9 +65,10 @@ def update_config(data: dict):
     config_path = CONFIG_DIR / "config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if config_path.exists():
+    try:
+        import toml
         existing = toml.load(config_path)
-    else:
+    except Exception:
         existing = {}
 
     for section, values in data.items():

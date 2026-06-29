@@ -18,6 +18,7 @@ export function StatusBadge({
   const padding = size === "sm" ? "px-2 py-0.5" : "px-3 py-1";
   return (
     <span
+      role="status"
       className={`${padding} rounded-full text-xs font-medium ${
         colorMap[status] || colorMap.pending
       }`}

@@ -71,26 +71,24 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteJob: async (id: string) => {
-    set({ loading: true, error: null });
+    set({ error: null });
     try {
       await api.jobs.delete(id);
       set((s) => ({
         jobs: s.jobs.filter((j) => j.id !== id),
         currentJob: s.currentJob?.id === id ? null : s.currentJob,
-        loading: false,
       }));
     } catch (e: unknown) {
-      set({ error: formatError(e), loading: false });
+      set({ error: formatError(e) });
     }
   },
 
   startGeneration: async (jobId: string, chapters: number[]) => {
-    set({ loading: true, error: null });
+    set({ error: null });
     try {
       await api.generate.start(jobId, { chapters });
-      set({ loading: false });
     } catch (e: unknown) {
-      set({ error: formatError(e), loading: false });
+      set({ error: formatError(e) });
       throw e;
     }
   },

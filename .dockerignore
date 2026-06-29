@@ -11,3 +11,4 @@ output
 .tmp
 *.db
 .env
+data

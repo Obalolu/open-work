@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.schemas import ChapterGenStatus, GenerateRequest, GenerationStatus
 from api.services import job_service, pipeline_service
-from api.services.pipeline_service import get_active_run_for_job, get_run_status
+from api.services.pipeline_service import get_active_run_for_job
 
 router = APIRouter()
 
