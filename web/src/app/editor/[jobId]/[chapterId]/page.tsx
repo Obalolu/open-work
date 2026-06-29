@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -13,6 +13,7 @@ import {
   BookOpen,
   ExternalLink,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function EditorPage() {
@@ -23,12 +24,13 @@ export default function EditorPage() {
   const [chapter, setChapter] = useState<ChapterDetail | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"content" | "sources">("content");
-  const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setError(null);
       try {
         const [ch, src] = await Promise.all([
           api.chapters.get(jobId, chapterNum),
@@ -37,18 +39,12 @@ export default function EditorPage() {
         setChapter(ch);
         setSources(src);
       } catch (e) {
-        console.error(e);
+        setError(String(e));
       }
       setLoading(false);
     };
     load();
   }, [jobId, chapterNum]);
-
-  useEffect(() => {
-    if (chapter?.content && editorRef.current) {
-      renderMarkdown(editorRef.current, chapter.content);
-    }
-  }, [chapter?.content]);
 
   if (loading) {
     return (
@@ -58,10 +54,11 @@ export default function EditorPage() {
     );
   }
 
-  if (!chapter) {
+  if (error || !chapter) {
     return (
       <div className="text-center py-12">
-        <p className="text-slate-500">Chapter not found</p>
+        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+        <p className="text-slate-500 mb-2">{error || "Chapter not found"}</p>
         <Link href={`/jobs/${jobId}`} className="text-blue-600 hover:underline mt-2 inline-block">
           Back to job
         </Link>
@@ -144,25 +141,13 @@ export default function EditorPage() {
                 {sections.length > 0 ? (
                   <div className="space-y-6">
                     {sections.map((section, i) => (
-                      <div key={i}>
-                        {section.title && (
-                          <h2 className="text-xl font-semibold text-slate-800 border-b border-slate-200 pb-2 mb-4">
-                            {section.title}
-                          </h2>
-                        )}
-                        <div
-                          className="tiptap-editor prose max-w-none"
-                          ref={(el) => {
-                            if (el) renderMarkdown(el, section.body);
-                          }}
-                        />
-                      </div>
+                      <Section key={i} section={section} />
                     ))}
                   </div>
                 ) : (
                   <div
-                    ref={editorRef}
                     className="tiptap-editor prose max-w-none"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.content) }}
                   />
                 )}
               </div>
@@ -276,13 +261,37 @@ export default function EditorPage() {
   );
 }
 
+function Section({ section }: { section: { title: string; body: string } }) {
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el) {
+        el.innerHTML = renderMarkdown(section.body);
+      }
+    },
+    [section.body]
+  );
+
+  return (
+    <div>
+      {section.title && (
+        <h2 className="text-xl font-semibold text-slate-800 border-b border-slate-200 pb-2 mb-4">
+          {section.title}
+        </h2>
+      )}
+      <div ref={ref} className="tiptap-editor prose max-w-none" />
+    </div>
+  );
+}
+
 function parseSections(content: string): { title: string; body: string }[] {
   const lines = content.split("\n");
   const sections: { title: string; body: string }[] = [];
   let current = { title: "", body: "" };
 
   for (const line of lines) {
-    if (line.startsWith("## ")) {
+    if (line.startsWith("### ")) {
+      current.body += line + "\n";
+    } else if (line.startsWith("## ")) {
       if (current.title || current.body.trim()) {
         sections.push(current);
       }
@@ -304,25 +313,33 @@ function parseSections(content: string): { title: string; body: string }[] {
   return sections;
 }
 
-function renderMarkdown(el: HTMLElement, md: string) {
+function renderMarkdown(md: string): string {
   let html = md
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
     .replace(/^# (.+)$/gm, "<h1>$1</h1>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`(.+?)`/g, "<code>$1</code>")
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
-    .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
     .replace(/\n\n/g, "</p><p>")
     .replace(/\n/g, "<br>");
 
   html = "<p>" + html + "</p>";
-  html = html.replace(/<p><\/p>/g, "").replace(/<p>(<h[123]>)/g, "$1").replace(/<\/h([123])><\/p>/g, "</h$1>");
+  html = html
+    .replace(/<p><\/p>/g, "")
+    .replace(/<p>(<h[123]>)/g, "$1")
+    .replace(/<\/h([123])><\/p>/g, "</h$1>")
+    .replace(/<p>(<ul>)/g, "$1")
+    .replace(/(<\/ul>)<\/p>/g, "$1");
 
-  el.innerHTML = html;
+  return html;
 }
 
 function StatusBadge({ status }: { status: string }) {

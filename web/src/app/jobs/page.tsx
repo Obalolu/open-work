@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
-import { api } from "@/lib/api";
-import { FileText, Plus, Trash2, Play } from "lucide-react";
+import { FileText, Plus, Trash2, Play, Loader2 } from "lucide-react";
 
 export default function JobsPage() {
-  const { jobs, fetchJobs, deleteJob } = useStore();
+  const { jobs, loading, error, fetchJobs, deleteJob } = useStore();
   const [showCreate, setShowCreate] = useState(false);
   const [topic, setTopic] = useState("");
   const [paperType, setPaperType] = useState("literature_review");
+  const [citationStyle, setCitationStyle] = useState("apa");
+  const [targetAudience, setTargetAudience] = useState("graduate_students");
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -21,18 +22,27 @@ export default function JobsPage() {
     if (!topic.trim()) return;
     setCreating(true);
     try {
-      await api.jobs.create({
+      await useStore.getState().createJob({
         topic: topic.trim(),
         paper_type: paperType,
+        citation_style: citationStyle,
+        target_audience: targetAudience,
       });
       setTopic("");
       setShowCreate(false);
-      fetchJobs();
     } catch (e) {
       alert(String(e));
     }
     setCreating(false);
   };
+
+  if (loading && jobs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -52,6 +62,13 @@ export default function JobsPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+          {error}
+          <button onClick={() => useStore.getState().clearError()} className="ml-2 underline">Dismiss</button>
+        </div>
+      )}
+
       {showCreate && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
           <h3 className="font-semibold text-slate-800">Create New Job</h3>
@@ -67,21 +84,53 @@ export default function JobsPage() {
               className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Paper Type
-            </label>
-            <select
-              value={paperType}
-              onChange={(e) => setPaperType(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="literature_review">Literature Review</option>
-              <option value="empirical_study">Empirical Study</option>
-              <option value="theoretical">Theoretical</option>
-              <option value="mixed_methods">Mixed Methods</option>
-              <option value="technical_report">Technical Report</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Paper Type
+              </label>
+              <select
+                value={paperType}
+                onChange={(e) => setPaperType(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="literature_review">Literature Review</option>
+                <option value="empirical_study">Empirical Study</option>
+                <option value="theoretical">Theoretical</option>
+                <option value="mixed_methods">Mixed Methods</option>
+                <option value="technical_report">Technical Report</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Citation Style
+              </label>
+              <select
+                value={citationStyle}
+                onChange={(e) => setCitationStyle(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="apa">APA</option>
+                <option value="mla">MLA</option>
+                <option value="chicago">Chicago</option>
+                <option value="ieee">IEEE</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Target Audience
+              </label>
+              <select
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="graduate_students">Graduate Students</option>
+                <option value="undergraduate">Undergraduate</option>
+                <option value="professionals">Professionals</option>
+                <option value="general">General</option>
+              </select>
+            </div>
           </div>
           <div className="flex gap-3">
             <button

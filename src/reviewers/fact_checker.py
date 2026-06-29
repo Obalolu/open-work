@@ -41,27 +41,7 @@ async def fact_check(
     """
     issues: list[FactCheckIssue] = []
 
-    # Check for {cite_MISSING} patterns
     import re
-    missing = re.findall(r'\{cite_MISSING[^}]*\}', chapter_text)
-    for m in missing:
-        issues.append(FactCheckIssue(
-            issue_type="missing_citation",
-            description=f"Missing citation placeholder found: {m}",
-            severity="high",
-        ))
-
-    # Check for invented citation IDs
-    all_cite_ids = {c.cite_id for c in citations}
-    used_cites = set(re.findall(r'\{cite_(\d{3})\}', chapter_text))
-    for cid in used_cites:
-        full_id = f"cite_{cid}"
-        if full_id not in all_cite_ids:
-            issues.append(FactCheckIssue(
-                issue_type="hallucinated_citation",
-                description=f"Citation ID {full_id} not found in citation database",
-                severity="high",
-            ))
 
     # Check for [VERIFY] markers
     verify_count = chapter_text.count("[VERIFY]")
@@ -71,6 +51,19 @@ async def fact_check(
             description=f"{verify_count} claims marked as unverified",
             severity="medium",
         ))
+
+    # Check for inline (Author, Year) citations and validate against database
+    inline_cites = re.findall(r'\(([A-Z][a-z]+(?:\s(?:et\sal\.|&\s[A-Z][a-z]+))?),\s*(\d{4})\)', chapter_text)
+    cite_keys = {f"{c.authors[0].split()[-1] if c.authors else ''}_{c.year}" for c in citations if c.authors}
+    for author_str, year in inline_cites:
+        last_name = author_str.split()[0]
+        key = f"{last_name}_{year}"
+        if key not in cite_keys and not any(last_name in c.authors[0] for c in citations if c.authors and c.year == int(year)):
+            issues.append(FactCheckIssue(
+                issue_type="hallucinated_citation",
+                description=f"Citation ({author_str}, {year}) not found in citation database",
+                severity="high",
+            ))
 
     # Use LLM for deeper fact-checking
     llm_issues = await _llm_fact_check(chapter_text, citations)

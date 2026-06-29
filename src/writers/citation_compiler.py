@@ -16,40 +16,24 @@ def compile_citations(
     citations: list[Citation],
     style: str = "apa",
 ) -> str:
-    """Replace citation IDs with formatted citations and append reference list.
+    """Append a formatted reference list to the text.
+
+    The writer uses inline (Author, Year) citations, so no replacement is needed.
+    This function just appends a References section from the citation database.
 
     Args:
-        text: Text containing {cite_XXX} placeholders.
+        text: Text with inline (Author, Year) citations.
         citations: List of Citation objects.
         style: Citation style ("apa", "mla", "chicago", "ieee").
 
     Returns:
-        Text with formatted citations and a reference list appended.
+        Text with a reference list appended.
     """
-    citation_map = {c.cite_id: c for c in citations}
+    if not citations:
+        return text
 
-    def replace_cite(match: re.Match) -> str:
-        cite_id = f"cite_{match.group(1)}"
-        citation = citation_map.get(cite_id)
-        if not citation:
-            return match.group(0)  # Leave unchanged if not found
-        return _format_inline(citation, style)
-
-    compiled = CITE_PATTERN.sub(replace_cite, text)
-
-    # Build reference list from actually cited IDs
-    cited_ids = set(CITE_PATTERN.findall(text))
-    cited_citations = [
-        citation_map[f"cite_{cid}"]
-        for cid in sorted(cited_ids)
-        if f"cite_{cid}" in citation_map
-    ]
-
-    if cited_citations:
-        ref_list = _build_reference_list(cited_citations, style)
-        compiled = compiled.rstrip() + "\n\n---\n\n" + ref_list
-
-    return compiled
+    ref_list = _build_reference_list(citations, style)
+    return text.rstrip() + "\n\n---\n\n" + ref_list
 
 
 def _format_inline(citation: Citation, style: str) -> str:

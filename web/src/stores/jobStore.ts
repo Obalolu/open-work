@@ -85,6 +85,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ loading: false });
     } catch (e: unknown) {
       set({ error: String(e), loading: false });
+      throw e;
     }
   },
 

@@ -11,6 +11,7 @@ export function usePolling(
   const [status, setStatus] = useState<GenerationStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const skippedIdle = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (timerRef.current) {
@@ -18,18 +19,25 @@ export function usePolling(
       timerRef.current = null;
     }
     setIsPolling(false);
+    skippedIdle.current = false;
   }, []);
 
   const startPolling = useCallback(() => {
     if (!jobId) return;
     setIsPolling(true);
+    skippedIdle.current = false;
 
     const poll = async () => {
       try {
         const s = await pollFn(jobId);
         setStatus(s);
-        if (s.phase === "complete" || s.phase === "error" || s.phase === "idle") {
+        if (s.phase === "complete" || s.phase === "error") {
           stopPolling();
+        } else if (s.phase === "idle") {
+          if (skippedIdle.current) {
+            stopPolling();
+          }
+          skippedIdle.current = true;
         }
       } catch {
         stopPolling();

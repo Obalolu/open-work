@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
@@ -13,8 +13,8 @@ import {
   FileText,
   BookOpen,
   BarChart3,
-  Clock,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function JobDetailPage() {
@@ -22,15 +22,28 @@ export default function JobDetailPage() {
   const jobId = params.id as string;
   const { currentJob, fetchJob, startGeneration } = useStore();
   const [generating, setGenerating] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
-  const { status: pollStatus, isPolling, startPolling } = usePolling(
+  const pollFn = useCallback(
+    (id: string) => api.generate.status(id),
+    []
+  );
+
+  const { status: pollStatus, isPolling, startPolling, stopPolling } = usePolling(
     jobId,
-    api.generate.status,
+    pollFn,
     2000
   );
 
   useEffect(() => {
-    fetchJob(jobId);
+    const load = async () => {
+      try {
+        await fetchJob(jobId);
+      } catch {
+        setNotFound(true);
+      }
+    };
+    load();
   }, [jobId, fetchJob]);
 
   useEffect(() => {
@@ -38,6 +51,12 @@ export default function JobDetailPage() {
       startPolling();
     }
   }, [currentJob?.status, startPolling]);
+
+  useEffect(() => {
+    if (pollStatus?.phase === "complete" || pollStatus?.phase === "error") {
+      fetchJob(jobId);
+    }
+  }, [pollStatus?.phase, jobId, fetchJob]);
 
   const handleGenerate = async () => {
     if (!currentJob) return;
@@ -51,6 +70,18 @@ export default function JobDetailPage() {
     }
     setGenerating(false);
   };
+
+  if (notFound || (!currentJob && !useStore.getState().loading)) {
+    return (
+      <div className="text-center py-12">
+        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+        <p className="text-slate-500 mb-2">Job not found</p>
+        <Link href="/jobs" className="text-blue-600 hover:underline text-sm">
+          Back to jobs
+        </Link>
+      </div>
+    );
+  }
 
   if (!currentJob) {
     return (
@@ -100,6 +131,13 @@ export default function JobDetailPage() {
 
       {isPolling && pollStatus && (
         <GenerationProgress status={pollStatus} />
+      )}
+
+      {pollStatus?.phase === "error" && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+          <p className="font-medium text-red-800">Generation failed</p>
+          <p className="text-sm text-red-600 mt-1">{pollStatus.message || "Unknown error"}</p>
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

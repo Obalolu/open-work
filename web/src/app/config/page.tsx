@@ -9,11 +9,14 @@ export default function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [proxy, setProxy] = useState<ProxyPoolStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [proxyMsg, setProxyMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setError(null);
       try {
         const [cfg, prx] = await Promise.all([
           api.config.get(),
@@ -22,7 +25,7 @@ export default function ConfigPage() {
         setConfig(cfg);
         setProxy(prx);
       } catch (e) {
-        console.error(e);
+        setError(String(e));
       }
       setLoading(false);
     };
@@ -31,14 +34,18 @@ export default function ConfigPage() {
 
   const handleRefreshProxy = async () => {
     setRefreshing(true);
+    setProxyMsg(null);
     try {
       const result = await api.proxy.refresh();
       if (result.ok) {
         const prx = await api.proxy.status();
         setProxy(prx);
+        setProxyMsg("Proxy pool refreshed successfully");
+      } else {
+        setProxyMsg(result.error || "Refresh failed");
       }
     } catch (e) {
-      console.error(e);
+      setProxyMsg(String(e));
     }
     setRefreshing(false);
   };
@@ -47,6 +54,16 @@ export default function ConfigPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500 mb-2">Failed to load settings</p>
+        <p className="text-sm text-slate-400">{error}</p>
+        <button onClick={() => window.location.reload()} className="mt-4 text-sm text-blue-600 hover:underline">Retry</button>
       </div>
     );
   }
@@ -136,6 +153,11 @@ export default function ConfigPage() {
               Refresh
             </button>
           </div>
+          {proxyMsg && (
+            <p className={`text-sm mt-3 ${proxyMsg.includes("success") ? "text-green-600" : "text-red-600"}`}>
+              {proxyMsg}
+            </p>
+          )}
           {proxy && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-slate-50 rounded-lg">

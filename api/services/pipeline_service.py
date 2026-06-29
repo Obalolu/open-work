@@ -142,7 +142,12 @@ def _run_pipeline(
                     pass
 
             seen = set()
-            unique_papers = [p for p in all_papers if p.paper_id not in seen and not seen.add(p.paper_id)]
+            unique_papers = []
+            for p in all_papers:
+                key = p.get("doi") or p.get("url") or p.get("title", "")
+                if key not in seen:
+                    seen.add(key)
+                    unique_papers.append(p)
 
             section_instructions = {
                 str(s.get("id", "")): s.get("instructions", "")
@@ -208,7 +213,6 @@ def _run_pipeline(
             )
 
             _update_run(db, run_id, phase="export", message=f"Exporting Chapter {ch_num}...")
-            output_dir = get_output_dir() / job_id
             export_chapter(chapter_text, job_id, ch_num, ["md"])
 
             ch_db = (
@@ -258,8 +262,6 @@ def _update_run(db: Session, run_id: str, **kwargs):
 
 
 def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
-    from src.router.prompt_loader import load_chapter_template
-
     chapters_ref = job_config.get("chapters", [])
     configs: list[dict[str, Any]] = []
 

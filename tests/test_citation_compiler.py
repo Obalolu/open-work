@@ -50,36 +50,42 @@ def _make_citations():
 
 
 class TestCompileCitations:
-    def test_replaces_citation_ids(self):
+    def test_appends_reference_list(self):
         citations = _make_citations()
-        text = "Recent studies {cite_001} show that AI is useful. Also {cite_002} confirms."
-        result = compile_citations(text, citations, style="apa")
-        assert "{cite_001}" not in result
-        assert "{cite_002}" not in result
-        assert "Smith" in result
-        assert "Johnson" in result
-
-    def test_generates_reference_list(self):
-        citations = _make_citations()
-        text = "Study shows results {cite_001} and {cite_003}."
+        text = "Recent studies show that AI is useful."
         result = compile_citations(text, citations, style="apa")
         assert "References" in result
         assert "Deep Learning" in result
+        assert "AI Diagnostics Review" in result
         assert "Machine Learning" in result
 
-    def test_only_includes_cited_references(self):
+    def test_preserves_original_text(self):
         citations = _make_citations()
-        text = "Only cite one {cite_001}."
+        text = "This is my (Smith, 2023) citation."
+        result = compile_citations(text, citations, style="apa")
+        assert result.startswith("This is my (Smith, 2023) citation.")
+        assert "References" in result
+
+    def test_includes_all_citations_in_references(self):
+        citations = _make_citations()
+        text = "Some text with no inline citations."
         result = compile_citations(text, citations, style="apa")
         assert "References" in result
         assert "Deep Learning" in result
-        assert "AI Diagnostics Review" not in result
+        assert "AI Diagnostics Review" in result
+        assert "Machine Learning" in result
 
-    def test_leaves_unknown_citations_unchanged(self):
+    def test_empty_citations_returns_text_unchanged(self):
+        text = "No citations here."
+        result = compile_citations(text, [], style="apa")
+        assert result == text
+
+    def test_different_styles(self):
         citations = _make_citations()
-        text = "Unknown {cite_999} should stay."
-        result = compile_citations(text, citations, style="apa")
-        assert "{cite_999}" in result
+        text = "Test text."
+        for style in ["apa", "mla", "chicago", "ieee"]:
+            result = compile_citations(text, citations, style=style)
+            assert "References" in result
 
 
 class TestFormatInline:
@@ -134,7 +140,6 @@ class TestBuildReferenceList:
         citations = _make_citations()
         result = _build_reference_list(citations, "apa")
         assert "References" in result
-        # Should be sorted: Brown, Johnson, Smith
         brown_pos = result.find("Brown")
         johnson_pos = result.find("Johnson")
         smith_pos = result.find("Smith")

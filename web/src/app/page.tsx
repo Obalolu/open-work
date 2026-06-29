@@ -3,14 +3,32 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
-import { FileText, BookOpen, BarChart3, Clock } from "lucide-react";
+import { FileText, BookOpen, BarChart3, Clock, Loader2 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { jobs, fetchJobs } = useStore();
+  const { jobs, loading, error, fetchJobs } = useStore();
 
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  if (loading && jobs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error && jobs.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500 mb-2">Failed to load data</p>
+        <p className="text-sm text-slate-400">{error}</p>
+        <button onClick={() => fetchJobs()} className="mt-4 text-sm text-blue-600 hover:underline">Retry</button>
+      </div>
+    );
+  }
 
   const totalChapters = jobs.reduce((s, j) => s + j.chapter_count, 0);
   const totalWords = jobs.reduce((s, j) => s + j.total_words, 0);
