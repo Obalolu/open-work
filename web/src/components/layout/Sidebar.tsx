@@ -14,7 +14,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col">
+    <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col hidden md:flex">
       <div className="p-6 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <BookOpen className="w-8 h-8 text-blue-400" />
@@ -25,10 +25,12 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 p-4 space-y-1" aria-label="Main navigation">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
+            href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(href);
           return (
             <Link
               key={href}

@@ -94,11 +94,3 @@ export interface ProxyPoolStatus {
   failed: number;
   last_refresh: string | null;
 }
-
-export interface DashboardStats {
-  total_jobs: number;
-  total_chapters: number;
-  total_words: number;
-  avg_ai_score: number | null;
-  jobs_by_status: Record<string, number>;
-}

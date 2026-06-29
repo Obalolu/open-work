@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
 import { usePolling } from "@/hooks/usePolling";
 import { api } from "@/lib/api";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { GenerationStatus } from "@/lib/types";
 import {
   ArrowLeft,
@@ -23,13 +24,14 @@ export default function JobDetailPage() {
   const { currentJob, fetchJob, startGeneration } = useStore();
   const [generating, setGenerating] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   const pollFn = useCallback(
     (id: string) => api.generate.status(id),
     []
   );
 
-  const { status: pollStatus, isPolling, startPolling, stopPolling } = usePolling(
+  const { status: pollStatus, isPolling, startPolling } = usePolling(
     jobId,
     pollFn,
     2000
@@ -61,12 +63,13 @@ export default function JobDetailPage() {
   const handleGenerate = async () => {
     if (!currentJob) return;
     setGenerating(true);
+    setGenError(null);
     try {
       const chapters = (currentJob.chapters || []).map((ch: { chapter_number: number }) => ch.chapter_number);
       await startGeneration(jobId, chapters);
       startPolling();
     } catch (e) {
-      alert(String(e));
+      setGenError(e instanceof Error ? e.message : String(e));
     }
     setGenerating(false);
   };
@@ -91,17 +94,24 @@ export default function JobDetailPage() {
     );
   }
 
+  const chapters = currentJob.chapters || [];
+  const chaptersWithScores = chapters.filter((ch: { ai_score: number | null }) => ch.ai_score !== null);
+  const avgAiScore = chaptersWithScores.length > 0
+    ? (chaptersWithScores.reduce((sum: number, ch: { ai_score: number | null }) => sum + (ch.ai_score || 0), 0) / chaptersWithScores.length).toFixed(1)
+    : "N/A";
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <Link
           href="/jobs"
           className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+          aria-label="Back to jobs"
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold text-slate-900">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900 truncate">
             {currentJob.topic}
           </h1>
           <p className="text-slate-500 mt-1">
@@ -113,7 +123,7 @@ export default function JobDetailPage() {
         <button
           onClick={handleGenerate}
           disabled={generating || isPolling}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
         >
           {generating || isPolling ? (
             <>
@@ -129,12 +139,19 @@ export default function JobDetailPage() {
         </button>
       </div>
 
+      {genError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5" role="alert">
+          <p className="font-medium text-red-800">Generation failed to start</p>
+          <p className="text-sm text-red-600 mt-1">{genError}</p>
+        </div>
+      )}
+
       {isPolling && pollStatus && (
         <GenerationProgress status={pollStatus} />
       )}
 
       {pollStatus?.phase === "error" && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5" role="alert">
           <p className="font-medium text-red-800">Generation failed</p>
           <p className="text-sm text-red-600 mt-1">{pollStatus.message || "Unknown error"}</p>
         </div>
@@ -144,36 +161,26 @@ export default function JobDetailPage() {
         <StatCard
           icon={<FileText className="w-5 h-5 text-blue-500" />}
           label="Chapters"
-          value={currentJob.chapters.length}
+          value={chapters.length}
         />
         <StatCard
           icon={<BookOpen className="w-5 h-5 text-green-500" />}
           label="Total Words"
-          value={(currentJob.chapters || [])
+          value={chapters
             .reduce((sum: number, ch: { word_count: number }) => sum + ch.word_count, 0)
             .toLocaleString()}
         />
         <StatCard
           icon={<BarChart3 className="w-5 h-5 text-purple-500" />}
           label="Avg AI Score"
-          value={
-            (currentJob.chapters || []).filter((ch: { ai_score: number | null }) => ch.ai_score !== null).length > 0
-              ? (
-                  (currentJob.chapters || [])
-                    .filter((ch: { ai_score: number | null }) => ch.ai_score !== null)
-                    .reduce((sum: number, ch: { ai_score: number | null }) => sum + (ch.ai_score || 0), 0) /
-                  (currentJob.chapters || []).filter((ch: { ai_score: number | null }) => ch.ai_score !== null)
-                    .length
-                ).toFixed(1)
-              : "N/A"
-          }
+          value={avgAiScore}
         />
       </div>
 
       <div>
         <h3 className="text-lg font-semibold text-slate-800 mb-4">Chapters</h3>
         <div className="space-y-3">
-          {(currentJob.chapters || []).map((ch: { chapter_number: number; name: string; word_count: number; ai_score: number | null; status: string }) => (
+          {chapters.map((ch: { chapter_number: number; name: string; word_count: number; ai_score: number | null; status: string }) => (
             <Link
               key={ch.chapter_number}
               href={`/editor/${jobId}/${ch.chapter_number}`}
@@ -226,24 +233,6 @@ function StatCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    pending: "bg-slate-100 text-slate-600",
-    generating: "bg-blue-100 text-blue-700",
-    complete: "bg-green-100 text-green-700",
-    error: "bg-red-100 text-red-700",
-  };
-  return (
-    <span
-      className={`px-3 py-1 rounded-full text-xs font-medium ${
-        colors[status] || colors.pending
-      }`}
-    >
-      {status}
-    </span>
   );
 }
 

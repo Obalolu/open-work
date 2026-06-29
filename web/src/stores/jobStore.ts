@@ -2,6 +2,14 @@ import { create } from "zustand";
 import type { Job, JobDetail, GenerationStatus } from "@/lib/types";
 import { api } from "@/lib/api";
 
+function formatError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null && "detail" in e) {
+    return String((e as { detail: unknown }).detail);
+  }
+  return String(e);
+}
+
 interface AppState {
   jobs: Job[];
   currentJob: JobDetail | null;
@@ -18,10 +26,7 @@ interface AppState {
     target_audience?: string;
   }) => Promise<Job>;
   deleteJob: (id: string) => Promise<void>;
-  startGeneration: (
-    jobId: string,
-    chapters: number[]
-  ) => Promise<void>;
+  startGeneration: (jobId: string, chapters: number[]) => Promise<void>;
   pollGenerationStatus: (jobId: string) => Promise<GenerationStatus>;
   clearError: () => void;
 }
@@ -39,7 +44,7 @@ export const useStore = create<AppState>((set, get) => ({
       const jobs = await api.jobs.list();
       set({ jobs, loading: false });
     } catch (e: unknown) {
-      set({ error: String(e), loading: false });
+      set({ error: formatError(e), loading: false });
     }
   },
 
@@ -49,7 +54,7 @@ export const useStore = create<AppState>((set, get) => ({
       const job = await api.jobs.get(id);
       set({ currentJob: job, loading: false });
     } catch (e: unknown) {
-      set({ error: String(e), loading: false });
+      set({ error: formatError(e), loading: false });
     }
   },
 
@@ -60,7 +65,7 @@ export const useStore = create<AppState>((set, get) => ({
       set((s) => ({ jobs: [job, ...s.jobs], loading: false }));
       return job;
     } catch (e: unknown) {
-      set({ error: String(e), loading: false });
+      set({ error: formatError(e), loading: false });
       throw e;
     }
   },
@@ -71,10 +76,11 @@ export const useStore = create<AppState>((set, get) => ({
       await api.jobs.delete(id);
       set((s) => ({
         jobs: s.jobs.filter((j) => j.id !== id),
+        currentJob: s.currentJob?.id === id ? null : s.currentJob,
         loading: false,
       }));
     } catch (e: unknown) {
-      set({ error: String(e), loading: false });
+      set({ error: formatError(e), loading: false });
     }
   },
 
@@ -84,7 +90,7 @@ export const useStore = create<AppState>((set, get) => ({
       await api.generate.start(jobId, { chapters });
       set({ loading: false });
     } catch (e: unknown) {
-      set({ error: String(e), loading: false });
+      set({ error: formatError(e), loading: false });
       throw e;
     }
   },

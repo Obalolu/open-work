@@ -39,7 +39,7 @@ export const api = {
         body: JSON.stringify(data),
       }),
     delete: (id: string) =>
-      request(`/api/jobs/${id}`, { method: "DELETE" }),
+      request<{ ok: boolean }>(`/api/jobs/${id}`, { method: "DELETE" }),
   },
 
   chapters: {
@@ -71,7 +71,7 @@ export const api = {
   config: {
     get: () => request<AppConfig>("/api/config"),
     update: (data: Record<string, unknown>) =>
-      request("/api/config", { method: "PUT", body: JSON.stringify(data) }),
+      request<{ ok: boolean }>("/api/config", { method: "PUT", body: JSON.stringify(data) }),
   },
 
   proxy: {

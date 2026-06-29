@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { ChapterDetail, Source } from "@/lib/types";
 import {
   ArrowLeft,
   Download,
   FileText,
-  BarChart3,
-  BookOpen,
   ExternalLink,
   Loader2,
   AlertTriangle,
@@ -19,7 +18,8 @@ import {
 export default function EditorPage() {
   const params = useParams();
   const jobId = params.jobId as string;
-  const chapterNum = parseInt(params.chapterId as string);
+  const chapterId = params.chapterId as string;
+  const chapterNum = parseInt(chapterId);
 
   const [chapter, setChapter] = useState<ChapterDetail | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -28,6 +28,11 @@ export default function EditorPage() {
   const [activeTab, setActiveTab] = useState<"content" | "sources">("content");
 
   useEffect(() => {
+    if (isNaN(chapterNum)) {
+      setError("Invalid chapter number");
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       setLoading(true);
       setError(null);
@@ -39,7 +44,7 @@ export default function EditorPage() {
         setChapter(ch);
         setSources(src);
       } catch (e) {
-        setError(String(e));
+        setError(e instanceof Error ? e.message : String(e));
       }
       setLoading(false);
     };
@@ -66,46 +71,47 @@ export default function EditorPage() {
     );
   }
 
-  const sections = parseSections(chapter.content);
+  const sections = parseSections(chapter.content || "");
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <Link
           href={`/jobs/${jobId}`}
           className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+          aria-label="Back to job"
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold text-slate-900">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900 truncate">
             Chapter {chapter.chapter_number}: {chapter.name}
           </h1>
           <p className="text-slate-500 mt-1">
             {chapter.word_count.toLocaleString()} words
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <a
             href={api.export.url(jobId, chapterNum, "md")}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <Download className="w-4 h-4" />
-            MD
+            <span className="hidden sm:inline">Download</span> MD
           </a>
           <a
             href={api.export.url(jobId, chapterNum, "docx")}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <Download className="w-4 h-4" />
-            DOCX
+            <span className="hidden sm:inline">Download</span> DOCX
           </a>
           <a
             href={api.export.url(jobId, chapterNum, "pdf")}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <Download className="w-4 h-4" />
-            PDF
+            <span className="hidden sm:inline">Download</span> PDF
           </a>
         </div>
       </div>
@@ -137,7 +143,7 @@ export default function EditorPage() {
 
           {activeTab === "content" ? (
             <div className="bg-white rounded-xl border border-slate-200">
-              <div className="p-8">
+              <div className="p-6 md:p-8">
                 {sections.length > 0 ? (
                   <div className="space-y-6">
                     {sections.map((section, i) => (
@@ -147,7 +153,7 @@ export default function EditorPage() {
                 ) : (
                   <div
                     className="tiptap-editor prose max-w-none"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.content) }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.content || "") }}
                   />
                 )}
               </div>
@@ -233,7 +239,7 @@ export default function EditorPage() {
               )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">Status</span>
-                <StatusBadge status={chapter.status} />
+                <StatusBadge status={chapter.status} size="sm" />
               </div>
             </div>
           </div>
@@ -313,6 +319,13 @@ function parseSections(content: string): { title: string; body: string }[] {
   return sections;
 }
 
+function sanitizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^(https?|mailto):/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return trimmed;
+  return "#";
+}
+
 function renderMarkdown(md: string): string {
   let html = md
     .replace(/&/g, "&amp;")
@@ -324,7 +337,10 @@ function renderMarkdown(md: string): string {
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`(.+?)`/g, "<code>$1</code>")
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(
+      /\[(.+?)\]\((.+?)\)/g,
+      (_, text, url) => `<a href="${sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`
+    )
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
     .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
@@ -340,22 +356,4 @@ function renderMarkdown(md: string): string {
     .replace(/(<\/ul>)<\/p>/g, "$1");
 
   return html;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    pending: "bg-slate-100 text-slate-600",
-    generating: "bg-blue-100 text-blue-700",
-    complete: "bg-green-100 text-green-700",
-    error: "bg-red-100 text-red-700",
-  };
-  return (
-    <span
-      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-        colors[status] || colors.pending
-      }`}
-    >
-      {status}
-    </span>
-  );
 }

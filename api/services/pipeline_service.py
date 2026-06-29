@@ -133,13 +133,14 @@ def _run_pipeline(
             research_queries = _extract_research_queries(ch_config)
             all_papers = []
             for query in research_queries[:5]:
+                loop = asyncio.new_event_loop()
                 try:
-                    loop = asyncio.new_event_loop()
                     papers = loop.run_until_complete(search_papers(query, max_results=10))
-                    loop.close()
                     all_papers.extend(papers)
                 except Exception:
                     pass
+                finally:
+                    loop.close()
 
             seen = set()
             unique_papers = []
@@ -213,7 +214,7 @@ def _run_pipeline(
             )
 
             _update_run(db, run_id, phase="export", message=f"Exporting Chapter {ch_num}...")
-            export_chapter(chapter_text, job_id, ch_num, ["md"])
+            export_chapter(chapter_text, job_id, ch_num, ["md", "docx", "pdf"])
 
             ch_db = (
                 db.query(Chapter)
@@ -252,6 +253,7 @@ def _update_run(db: Session, run_id: str, **kwargs):
             run.error = v
             run.phase = "error"
         elif k == "chapter_number":
+            run.chapter_number = v
             run.message = kwargs.get("message", run.message)
         else:
             setattr(run, k, v)

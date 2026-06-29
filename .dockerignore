@@ -1,0 +1,13 @@
+.git
+node_modules
+.next
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+tests
+output
+.tmp
+*.db
+.env

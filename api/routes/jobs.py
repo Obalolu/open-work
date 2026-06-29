@@ -38,7 +38,10 @@ def list_jobs(db: Session = Depends(get_db)):
 
 @router.post("", response_model=JobResponse, status_code=201)
 def create_job(data: JobCreate, db: Session = Depends(get_db)):
-    job = job_service.create_job(db, data)
+    try:
+        job = job_service.create_job(db, data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
     chapters = db.query(job_service.Chapter).filter(
         job_service.Chapter.job_id == job.id
     ).all()
@@ -86,6 +89,8 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
         updated_at=job.updated_at,
         config_json=job.config_json,
         chapters=chapters,
+        chapter_count=len(chapters),
+        total_words=sum(ch.word_count for ch in job.chapters),
     )
 
 

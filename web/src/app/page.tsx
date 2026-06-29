@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { FileText, BookOpen, BarChart3, Clock, Loader2 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -136,23 +137,5 @@ function StatCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: "bg-slate-100 text-slate-600",
-    generating: "bg-blue-100 text-blue-700",
-    complete: "bg-green-100 text-green-700",
-    error: "bg-red-100 text-red-700",
-  };
-  return (
-    <span
-      className={`px-3 py-1 rounded-full text-xs font-medium ${
-        colors[status] || colors.draft
-      }`}
-    >
-      {status}
-    </span>
   );
 }

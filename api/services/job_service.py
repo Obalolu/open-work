@@ -23,7 +23,7 @@ def get_job(db: Session, job_id: str) -> Job | None:
 
 def create_job(db: Session, data: JobCreate) -> Job:
     job = Job(
-        id=_slugify(data.topic),
+        id=_slugify_unique(db, data.topic),
         topic=data.topic,
         paper_type=data.paper_type,
         citation_style=data.citation_style,
@@ -168,3 +168,14 @@ def _slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", text.lower().strip())
     slug = slug.strip("_")[:50]
     return slug or "untitled_job"
+
+
+def _slugify_unique(db: Session, text: str) -> str:
+    base = _slugify(text)
+    slug = base
+    counter = 1
+    while db.query(Job).filter(Job.id == slug).first():
+        suffix = f"_{counter}"
+        slug = base[:50 - len(suffix)] + suffix
+        counter += 1
+    return slug

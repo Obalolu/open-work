@@ -23,7 +23,6 @@ class JobUpdate(BaseModel):
     paper_type: Optional[str] = None
     citation_style: Optional[str] = None
     target_audience: Optional[str] = None
-    status: Optional[str] = None
 
 
 class JobResponse(BaseModel):
@@ -52,6 +51,8 @@ class JobDetail(BaseModel):
     updated_at: datetime
     config_json: str
     chapters: list["ChapterSummary"] = []
+    chapter_count: int = 0
+    total_words: int = 0
 
     model_config = {"from_attributes": True}
 

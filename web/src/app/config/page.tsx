@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import type { AppConfig, ProxyPoolStatus } from "@/lib/types";
 import { Settings, Wifi, RefreshCw, Check, X, Loader2 } from "lucide-react";
@@ -13,24 +13,25 @@ export default function ConfigPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [cfg, prx] = await Promise.all([
-          api.config.get(),
-          api.proxy.status().catch(() => null),
-        ]);
-        setConfig(cfg);
-        setProxy(prx);
-      } catch (e) {
-        setError(String(e));
-      }
-      setLoading(false);
-    };
-    load();
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [cfg, prx] = await Promise.all([
+        api.config.get(),
+        api.proxy.status().catch(() => null),
+      ]);
+      setConfig(cfg);
+      setProxy(prx);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleRefreshProxy = async () => {
     setRefreshing(true);
@@ -45,7 +46,7 @@ export default function ConfigPage() {
         setProxyMsg(result.error || "Refresh failed");
       }
     } catch (e) {
-      setProxyMsg(String(e));
+      setProxyMsg(e instanceof Error ? e.message : String(e));
     }
     setRefreshing(false);
   };
@@ -63,7 +64,7 @@ export default function ConfigPage() {
       <div className="text-center py-12">
         <p className="text-red-500 mb-2">Failed to load settings</p>
         <p className="text-sm text-slate-400">{error}</p>
-        <button onClick={() => window.location.reload()} className="mt-4 text-sm text-blue-600 hover:underline">Retry</button>
+        <button onClick={load} className="mt-4 text-sm text-blue-600 hover:underline">Retry</button>
       </div>
     );
   }
@@ -154,7 +155,7 @@ export default function ConfigPage() {
             </button>
           </div>
           {proxyMsg && (
-            <p className={`text-sm mt-3 ${proxyMsg.includes("success") ? "text-green-600" : "text-red-600"}`}>
+            <p className={`text-sm mt-3 ${proxyMsg.includes("success") ? "text-green-600" : "text-red-600"}`} role="status">
               {proxyMsg}
             </p>
           )}

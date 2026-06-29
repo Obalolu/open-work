@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/stores/jobStore";
-import { FileText, Plus, Trash2, Play, Loader2 } from "lucide-react";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { FileText, Plus, Trash2, Play, Loader2, AlertTriangle } from "lucide-react";
 
 export default function JobsPage() {
   const { jobs, loading, error, fetchJobs, deleteJob } = useStore();
@@ -13,6 +14,8 @@ export default function JobsPage() {
   const [citationStyle, setCitationStyle] = useState("apa");
   const [targetAudience, setTargetAudience] = useState("graduate_students");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchJobs();
@@ -21,6 +24,7 @@ export default function JobsPage() {
   const handleCreate = async () => {
     if (!topic.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await useStore.getState().createJob({
         topic: topic.trim(),
@@ -29,11 +33,19 @@ export default function JobsPage() {
         target_audience: targetAudience,
       });
       setTopic("");
+      setPaperType("literature_review");
+      setCitationStyle("apa");
+      setTargetAudience("graduate_students");
       setShowCreate(false);
     } catch (e) {
-      alert(String(e));
+      setCreateError(formatError(e));
     }
     setCreating(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeleteId(null);
+    await deleteJob(id);
   };
 
   if (loading && jobs.length === 0) {
@@ -63,20 +75,27 @@ export default function JobsPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 flex items-center gap-2" role="alert">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
           {error}
-          <button onClick={() => useStore.getState().clearError()} className="ml-2 underline">Dismiss</button>
+          <button onClick={() => useStore.getState().clearError()} className="ml-auto underline">Dismiss</button>
         </div>
       )}
 
       {showCreate && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
           <h3 className="font-semibold text-slate-800">Create New Job</h3>
+          {createError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700" role="alert">
+              {createError}
+            </div>
+          )}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="job-topic" className="block text-sm font-medium text-slate-700 mb-1">
               Topic
             </label>
             <input
+              id="job-topic"
               type="text"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
@@ -86,10 +105,11 @@ export default function JobsPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label htmlFor="job-paper-type" className="block text-sm font-medium text-slate-700 mb-1">
                 Paper Type
               </label>
               <select
+                id="job-paper-type"
                 value={paperType}
                 onChange={(e) => setPaperType(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -102,10 +122,11 @@ export default function JobsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label htmlFor="job-citation" className="block text-sm font-medium text-slate-700 mb-1">
                 Citation Style
               </label>
               <select
+                id="job-citation"
                 value={citationStyle}
                 onChange={(e) => setCitationStyle(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -117,10 +138,11 @@ export default function JobsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label htmlFor="job-audience" className="block text-sm font-medium text-slate-700 mb-1">
                 Target Audience
               </label>
               <select
+                id="job-audience"
                 value={targetAudience}
                 onChange={(e) => setTargetAudience(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -157,100 +179,102 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
-                  Topic
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
-                  Type
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
-                  Chapters
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
-                  Status
-                </th>
-                <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((job) => (
-                <tr
-                  key={job.id}
-                  className="border-b border-slate-100 hover:bg-slate-50"
-                >
-                  <td className="px-6 py-4">
-                    <Link
-                      href={`/jobs/${job.id}`}
-                      className="font-medium text-slate-800 hover:text-blue-600"
-                    >
-                      {job.topic.length > 60
-                        ? job.topic.slice(0, 60) + "..."
-                        : job.topic}
-                    </Link>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {job.id}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">
-                    {job.paper_type.replace(/_/g, " ")}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">
-                    {job.chapter_count}
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={job.status} />
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Research jobs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
+                    Topic
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">
+                    Type
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">
+                    Chapters
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
+                    Status
+                  </th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr
+                    key={job.id}
+                    className="border-b border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="px-6 py-4">
                       <Link
                         href={`/jobs/${job.id}`}
-                        className="p-2 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
-                        title="View"
+                        className="font-medium text-slate-800 hover:text-blue-600"
                       >
-                        <Play className="w-4 h-4" />
+                        {job.topic.length > 60
+                          ? job.topic.slice(0, 60) + "..."
+                          : job.topic}
                       </Link>
-                      <button
-                        onClick={() => {
-                          if (confirm("Delete this job?")) {
-                            deleteJob(job.id);
-                          }
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <p className="text-xs text-slate-400 mt-0.5 sm:hidden">
+                        {job.paper_type.replace(/_/g, " ")}
+                      </p>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 hidden sm:table-cell">
+                      {job.paper_type.replace(/_/g, " ")}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 hidden md:table-cell">
+                      {job.chapter_count}
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={job.status} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="p-2 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                          aria-label={`View ${job.topic}`}
+                        >
+                          <Play className="w-4 h-4" />
+                        </Link>
+                        {deleteId === job.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleDelete(job.id)}
+                              className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setDeleteId(null)}
+                              className="px-2 py-1 text-slate-600 text-xs rounded hover:bg-slate-100"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteId(job.id)}
+                            className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            aria-label={`Delete ${job.topic}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: "bg-slate-100 text-slate-600",
-    generating: "bg-blue-100 text-blue-700",
-    complete: "bg-green-100 text-green-700",
-    error: "bg-red-100 text-red-700",
-  };
-  return (
-    <span
-      className={`px-3 py-1 rounded-full text-xs font-medium ${
-        colors[status] || colors.draft
-      }`}
-    >
-      {status}
-    </span>
-  );
+function formatError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return String(e);
 }

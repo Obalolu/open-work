@@ -30,13 +30,17 @@ def get_research_sources(job_id: str, db: Session = Depends(get_db)):
     except Exception:
         return []
 
-    sources = []
-    seen = set()
     job_config = json.loads(job.config_json)
     topic = job_config.get("topic", "")
 
+    sources = []
+    seen = set()
+
     for key, entry in cache.items():
         if isinstance(entry, dict) and "papers" in entry:
+            cache_topic = entry.get("topic", "")
+            if topic and cache_topic and cache_topic != topic:
+                continue
             for paper in entry["papers"]:
                 pid = paper.get("paper_id", "")
                 if pid in seen:
