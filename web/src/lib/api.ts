@@ -9,7 +9,7 @@ import type {
   ProxyPoolStatus,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -85,6 +85,6 @@ export const api = {
 
   export: {
     url: (jobId: string, chapter: number, format: string) =>
-      `${API_BASE}/api/jobs/${jobId}/chapters/${chapter}/export?format=${format}`,
+      `/api/jobs/${jobId}/chapters/${chapter}/export?format=${format}`,
   },
 };
