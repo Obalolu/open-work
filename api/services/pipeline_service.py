@@ -133,8 +133,8 @@ def _run_pipeline(
             )
 
             topic = job_config.get("topic", "research topic")
-            research_queries = _extract_research_queries(ch_config)
-            _update_run(db, run_id, message=f"Researching Chapter {ch_num}: {ch_name} (queries: {len(research_queries[:3])})...")
+            research_queries = _extract_research_queries(ch_config, topic)
+            _update_run(db, run_id, message=f"Researching Chapter {ch_num}: {ch_name} (queries: {len(research_queries)})...")
 
             all_papers: list[dict] = []
             try:
@@ -333,11 +333,17 @@ def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
     return configs
 
 
-def _extract_research_queries(ch_config: dict[str, Any]) -> list[str]:
+def _extract_research_queries(ch_config: dict[str, Any], topic: str = "") -> list[str]:
     queries: list[str] = []
     for section in ch_config.get("sections", []):
-        title = section.get("title", "")
-        instructions = section.get("instructions", "")
-        if title:
-            queries.append(f"{title} {instructions}".strip())
-    return queries if queries else [ch_config.get("name", "general research")]
+        title = (section.get("title", "") or "").strip()
+        instructions = (section.get("instructions", "") or "").strip()
+        # Skip placeholder sections without meaningful instructions
+        if title.lower() in ("section 1", "section", "") and not instructions:
+            continue
+        if title or instructions:
+            queries.append(f"{topic} {title} {instructions}".strip())
+    if not queries:
+        fallback = topic or ch_config.get("name", "general research") or "general research"
+        queries.append(fallback)
+    return queries
