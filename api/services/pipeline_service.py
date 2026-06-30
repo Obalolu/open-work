@@ -420,14 +420,26 @@ def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _extract_research_queries(ch_config: dict[str, Any], topic: str = "") -> list[str]:
     queries: list[str] = []
+    topic = (topic or "").strip()
     for section in ch_config.get("sections", []):
         title = (section.get("title", "") or "").strip()
         instructions = (section.get("instructions", "") or "").strip()
         # Skip placeholder sections without meaningful instructions
         if title.lower() in ("section 1", "section", "") and not instructions:
             continue
-        if title or instructions:
-            queries.append(f"{topic} {title} {instructions}".strip())
+        if not title and not instructions:
+            continue
+        # Build concise query from topic + title + first sentence of instructions
+        parts = [p for p in [topic, title] if p]
+        if instructions:
+            first_sentence = instructions.split(".")[0].strip()
+            if len(first_sentence) > 200:
+                first_sentence = first_sentence[:200].rsplit(" ", 1)[0] + "..."
+            if first_sentence:
+                parts.append(first_sentence)
+        query = " ".join(parts).strip()
+        if query and query not in queries:
+            queries.append(query)
     if not queries:
         fallback = topic or ch_config.get("name", "general research") or "general research"
         queries.append(fallback)
