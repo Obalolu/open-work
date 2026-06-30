@@ -5,14 +5,20 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { Empty } from "@/components/ui/Empty";
 import type { ChapterDetail, Source } from "@/lib/types";
 import {
   ArrowLeft,
   Download,
   FileText,
   ExternalLink,
-  Loader2,
   AlertTriangle,
+  Search,
+  Quote,
 } from "lucide-react";
 
 export default function EditorPage() {
@@ -25,7 +31,7 @@ export default function EditorPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"content" | "sources">("content");
+  const [sourceSearch, setSourceSearch] = useState("");
 
   useEffect(() => {
     if (isNaN(chapterNum)) {
@@ -53,176 +59,203 @@ export default function EditorPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-6 w-1/3" />
+            <Skeleton className="h-3 w-1/5" />
+          </div>
+        </div>
+        <Skeleton className="h-96" />
       </div>
     );
   }
 
   if (error || !chapter) {
     return (
-      <div className="text-center py-12">
-        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-        <p className="text-slate-500 mb-2">{error || "Chapter not found"}</p>
-        <Link href={`/jobs/${jobId}`} className="text-blue-600 hover:underline mt-2 inline-block">
-          Back to job
-        </Link>
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning-soft text-warning">
+          <AlertTriangle className="h-6 w-6" />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {error || "Chapter not found"}
+        </p>
+        <Button variant="link" asChild className="mt-2">
+          <Link href={`/jobs/${jobId}`}>Back to job</Link>
+        </Button>
       </div>
     );
   }
 
   const sections = parseSections(chapter.content || "");
+  const filteredSources = sources.filter(
+    (s) =>
+      s.title.toLowerCase().includes(sourceSearch.toLowerCase()) ||
+      s.authors.some((a) => a.toLowerCase().includes(sourceSearch.toLowerCase()))
+  );
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <Link
-          href={`/jobs/${jobId}`}
-          className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-          aria-label="Back to job"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 truncate">
-            Chapter {chapter.chapter_number}: {chapter.name}
-          </h1>
-          <p className="text-slate-500 mt-1">
-            {chapter.word_count.toLocaleString()} words
-          </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href={`/jobs/${jobId}`} aria-label="Back to job">
+              <ArrowLeft />
+            </Link>
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+              Chapter {chapter.chapter_number}: {chapter.name}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {chapter.word_count.toLocaleString()} words
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <a
-            href={api.export.url(jobId, chapterNum, "md")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> MD
-          </a>
-          <a
-            href={api.export.url(jobId, chapterNum, "docx")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> DOCX
-          </a>
-          <a
-            href={api.export.url(jobId, chapterNum, "pdf")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> PDF
-          </a>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(["md", "docx", "pdf"] as const).map((fmt) => (
+            <Button
+              key={fmt}
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <a
+                href={api.export.url(jobId, chapterNum, fmt)}
+                download
+              >
+                <Download />
+                <span className="uppercase">{fmt}</span>
+              </a>
+            </Button>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid gap-6 lg:grid-cols-4">
         <div className="lg:col-span-3">
-          <div className="flex gap-1 mb-4 border-b border-slate-200">
-            <button
-              onClick={() => setActiveTab("content")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-                activeTab === "content"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Content
-            </button>
-            <button
-              onClick={() => setActiveTab("sources")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-                activeTab === "sources"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Sources ({sources.length})
-            </button>
-          </div>
+          <Tabs defaultValue="content">
+            <TabsList>
+              <TabsTrigger value="content">Content</TabsTrigger>
+              <TabsTrigger value="sources">Sources ({sources.length})</TabsTrigger>
+            </TabsList>
 
-          {activeTab === "content" ? (
-            <div className="bg-white rounded-xl border border-slate-200">
-              <div className="p-6 md:p-8">
-                {sections.length > 0 ? (
-                  <div className="space-y-6">
-                    {sections.map((section, i) => (
-                      <Section key={i} section={section} />
-                    ))}
-                  </div>
-                ) : (
-                  <div
-                    className="tiptap-editor prose max-w-none"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.content || "") }}
-                  />
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-              {sources.length === 0 ? (
-                <p className="text-slate-500 text-center py-8">
-                  No sources found for this job
-                </p>
-              ) : (
-                sources.map((src) => (
-                  <div
-                    key={src.paper_id}
-                    className="border border-slate-200 rounded-lg p-4 hover:border-slate-300"
-                  >
-                    <h4 className="font-medium text-slate-800">
-                      {src.title}
-                    </h4>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {src.authors.slice(0, 3).join(", ")}
-                      {src.authors.length > 3 ? " et al." : ""}
-                      {src.year ? ` (${src.year})` : ""}
-                    </p>
-                    {src.abstract_summary && (
-                      <p className="text-sm text-slate-600 mt-2 line-clamp-2">
-                        {src.abstract_summary}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 mt-3 text-xs text-slate-400">
-                      {src.venue && <span>{src.venue}</span>}
-                      {src.citation_count > 0 && (
-                        <span>{src.citation_count} citations</span>
-                      )}
-                      {src.paper_url && (
-                        <a
-                          href={src.paper_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-500 hover:text-blue-700"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          Link
-                        </a>
-                      )}
+            <TabsContent value="content" className="mt-0">
+              <Card>
+                <CardContent className="p-6 md:p-8">
+                  {sections.length > 0 ? (
+                    <div className="space-y-6">
+                      {sections.map((section, i) => (
+                        <Section key={i} section={section} />
+                      ))}
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+                  ) : (
+                    <div
+                      className="tiptap-editor prose max-w-none"
+                      dangerouslySetInnerHTML={{
+                        __html: renderMarkdown(chapter.content || ""),
+                      }}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="sources" className="mt-0">
+              <Card>
+                <CardContent className="space-y-4 p-5">
+                  {sources.length > 0 && (
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={sourceSearch}
+                        onChange={(e) => setSourceSearch(e.target.value)}
+                        placeholder="Search sources by title or author…"
+                        className="h-9 w-full rounded-md border border-input bg-surface pl-9 pr-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/40"
+                      />
+                    </div>
+                  )}
+                  {sources.length === 0 ? (
+                    <Empty
+                      icon={<Quote className="h-5 w-5" />}
+                      title="No sources found"
+                      description="This job has no research sources yet."
+                    />
+                  ) : filteredSources.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      No sources match &ldquo;{sourceSearch}&rdquo;.
+                    </p>
+                  ) : (
+                    filteredSources.map((src) => (
+                      <div
+                        key={src.paper_id}
+                        className="rounded-md border border-border p-4 transition-colors hover:border-subtle-foreground/30 hover:bg-muted/30"
+                      >
+                        <h4 className="text-sm font-medium text-foreground">
+                          {src.title}
+                        </h4>
+                        <p className="mt-1 text-2xs text-muted-foreground">
+                          {src.authors.slice(0, 3).join(", ")}
+                          {src.authors.length > 3 ? " et al." : ""}
+                          {src.year ? ` (${src.year})` : ""}
+                        </p>
+                        {src.abstract_summary && (
+                          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                            {src.abstract_summary}
+                          </p>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
+                          {src.venue && (
+                            <span className="rounded-full bg-muted px-2 py-0.5">
+                              {src.venue}
+                            </span>
+                          )}
+                          {src.citation_count > 0 && (
+                            <span>{src.citation_count} citations</span>
+                          )}
+                          {src.confidence > 0 && (
+                            <span>{Math.round(src.confidence * 100)}% confidence</span>
+                          )}
+                          {src.paper_url && (
+                            <a
+                              href={src.paper_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Open
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-3">Stats</h3>
-            <div className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Words</span>
-                <span className="font-medium text-slate-800">
+                <span className="text-muted-foreground">Words</span>
+                <span className="font-medium text-foreground">
                   {chapter.word_count.toLocaleString()}
                 </span>
               </div>
               {chapter.ai_score !== null && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">AI Score</span>
+                  <span className="text-muted-foreground">AI score</span>
                   <span
                     className={`font-medium ${
-                      chapter.ai_score < 50 ? "text-green-600" : "text-amber-600"
+                      chapter.ai_score < 50 ? "text-success" : "text-warning"
                     }`}
                   >
                     {chapter.ai_score.toFixed(1)}/100
@@ -231,36 +264,40 @@ export default function EditorPage() {
               )}
               {chapter.style_score !== null && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Style Score</span>
-                  <span className="font-medium text-slate-800">
+                  <span className="text-muted-foreground">Style score</span>
+                  <span className="font-medium text-foreground">
                     {chapter.style_score}/100
                   </span>
                 </div>
               )}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Status</span>
+                <span className="text-muted-foreground">Status</span>
                 <StatusBadge status={chapter.status} size="sm" />
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-3">Sections</h3>
-            <div className="space-y-2">
-              {sections.map((section, i) => (
-                <div
-                  key={i}
-                  className="text-sm text-slate-600 flex items-center gap-2"
-                >
-                  <FileText className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span className="truncate">{section.title || `Section ${i + 1}`}</span>
-                </div>
-              ))}
-              {sections.length === 0 && (
-                <p className="text-sm text-slate-400">No sections parsed</p>
-              )}
-            </div>
-          </div>
+          {sections.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Sections</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                {sections.map((section, i) => (
+                  <a
+                    key={i}
+                    href={`#section-${i}`}
+                    className="flex items-center gap-2 rounded-sm px-1 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {section.title || `Section ${i + 1}`}
+                    </span>
+                  </a>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
@@ -278,14 +315,14 @@ function Section({ section }: { section: { title: string; body: string } }) {
   );
 
   return (
-    <div>
+    <section id={`section-${section.title}`}>
       {section.title && (
-        <h2 className="text-xl font-semibold text-slate-800 border-b border-slate-200 pb-2 mb-4">
+        <h2 className="mb-3 border-b border-border pb-2 text-xl font-semibold text-foreground">
           {section.title}
         </h2>
       )}
       <div ref={ref} className="tiptap-editor prose max-w-none" />
-    </div>
+    </section>
   );
 }
 

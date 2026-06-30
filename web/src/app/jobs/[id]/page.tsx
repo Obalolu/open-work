@@ -3,11 +3,35 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { useStore } from "@/stores/jobStore";
 import { usePolling } from "@/hooks/usePolling";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { StatCard } from "@/components/ui/StatCard";
+import { Button } from "@/components/ui/Button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
+import { Checkbox } from "@/components/ui/Checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/Select";
+import { Progress } from "@/components/ui/Progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/Dialog";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { toast } from "sonner";
 import type { GenerationStatus, JobDetail } from "@/lib/types";
 import {
   ArrowLeft,
@@ -15,14 +39,12 @@ import {
   FileText,
   BookOpen,
   BarChart3,
-  Loader2,
   AlertTriangle,
-  Settings,
-  ChevronDown,
-  ChevronUp,
   Edit,
-  Save,
   X,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 const STYLE_OPTIONS = [
@@ -37,13 +59,6 @@ const FORMAT_OPTIONS = [
   { value: "pdf", label: "PDF" },
 ];
 
-const CHAPTER_TEMPLATES = [
-  { value: "", label: "No template" },
-  { value: "chapter_1.yaml", label: "Introduction" },
-  { value: "chapter_2.yaml", label: "Literature Review" },
-  { value: "chapter_3.yaml", label: "Methodology" },
-];
-
 export default function JobDetailPage() {
   const params = useParams();
   const jobId = params.id as string;
@@ -51,14 +66,12 @@ export default function JobDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
-  const [showOptions, setShowOptions] = useState(false);
   const [style, setStyle] = useState("academic_balanced.yaml");
   const [formats, setFormats] = useState<string[]>(["md"]);
   const [skipHumanize, setSkipHumanize] = useState(false);
   const [skipReview, setSkipReview] = useState(false);
   const [selectedChapters, setSelectedChapters] = useState<Set<number>>(new Set());
 
-  // Editing state
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<
     | (Partial<Omit<JobDetail, "chapters">> & {
@@ -92,20 +105,24 @@ export default function JobDetailPage() {
   useEffect(() => {
     if (pollStatus?.phase === "complete" || pollStatus?.phase === "error") {
       fetchJob(jobId);
+      if (pollStatus.phase === "complete") {
+        toast.success("Generation complete", { description: currentJob?.topic });
+      }
     }
-  }, [pollStatus?.phase, jobId, fetchJob]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollStatus?.phase, jobId]);
 
   useEffect(() => {
     if (currentJob && selectedChapters.size === 0) {
       setSelectedChapters(new Set(currentJob.chapters.map((ch) => ch.chapter_number)));
     }
-  }, [currentJob]);
+  }, [currentJob, selectedChapters.size]);
 
   const handleGenerate = async (chapterNums?: number[]) => {
     if (!currentJob) return;
     const chapters = chapterNums || Array.from(selectedChapters);
     if (chapters.length === 0) {
-      setGenError("Select at least one chapter");
+      toast.error("Select at least one chapter");
       return;
     }
     setGenerating(true);
@@ -118,8 +135,13 @@ export default function JobDetailPage() {
         skip_review: skipReview,
       });
       startPolling();
+      toast.success("Generation started", {
+        description: `${chapters.length} chapter${chapters.length === 1 ? "" : "s"} queued`,
+      });
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setGenError(msg);
+      toast.error("Failed to start generation", { description: msg });
     }
     setGenerating(false);
   };
@@ -173,74 +195,44 @@ export default function JobDetailPage() {
       });
       setIsEditing(false);
       fetchJob(jobId);
+      toast.success("Job updated");
     } catch (e) {
-      setGenError(e instanceof Error ? e.message : String(e));
+      toast.error("Failed to update job", {
+        description: e instanceof Error ? e.message : String(e),
+      });
     }
     setSaving(false);
   };
 
-  const updateEditChapter = (index: number, field: "name" | "template", value: string) => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      const chapters = [...prev.chapters];
-      chapters[index] = { ...chapters[index], [field]: value };
-      return { ...prev, chapters };
-    });
-  };
-
-  const addEditChapter = () => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      return { ...prev, chapters: [...prev.chapters, { name: "", template: "" }] };
-    });
-  };
-
-  const removeEditChapter = (index: number) => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      return { ...prev, chapters: prev.chapters.filter((_, i) => i !== index) };
-    });
-  };
-
-  const updateEditQuery = (index: number, value: string) => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      const queries = [...prev.research_queries];
-      queries[index] = value;
-      return { ...prev, research_queries: queries };
-    });
-  };
-
-  const addEditQuery = () => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      return { ...prev, research_queries: [...prev.research_queries, ""] };
-    });
-  };
-
-  const removeEditQuery = (index: number) => {
-    setEditForm((prev) => {
-      if (!prev) return prev;
-      return { ...prev, research_queries: prev.research_queries.filter((_, i) => i !== index) };
-    });
-  };
-
   if (notFound || (!currentJob && !useStore.getState().loading)) {
     return (
-      <div className="text-center py-12">
-        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-        <p className="text-slate-500 mb-2">Job not found</p>
-        <Link href="/jobs" className="text-blue-600 hover:underline text-sm">
-          Back to jobs
-        </Link>
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning-soft text-warning">
+          <AlertTriangle className="h-6 w-6" />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">Job not found</p>
+        <Button variant="link" asChild className="mt-2">
+          <Link href="/jobs">Back to jobs</Link>
+        </Button>
       </div>
     );
   }
 
   if (!currentJob) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-6 w-1/3" />
+            <Skeleton className="h-3 w-1/5" />
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -255,73 +247,66 @@ export default function JobDetailPage() {
         ).toFixed(1)
       : "N/A";
 
-  const errorTraceback = pollStatus?.phase === "error" && pollStatus.message ? pollStatus.message : null;
+  const errorTraceback =
+    pollStatus?.phase === "error" && pollStatus.message ? pollStatus.message : null;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <Link
-          href="/jobs"
-          className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-          aria-label="Back to jobs"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 truncate">
-            {currentJob.topic}
-          </h1>
-          <p className="text-slate-500 mt-1">
-            {currentJob.paper_type.replace(/_/g, " ")} &middot;{" "}
-            {currentJob.citation_style.toUpperCase()} &middot;{" "}
-            {currentJob.target_audience.replace(/_/g, " ")}
-          </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/jobs" aria-label="Back to jobs">
+              <ArrowLeft />
+            </Link>
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+              {currentJob.topic}
+            </h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span>{currentJob.paper_type.replace(/_/g, " ")}</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span>{currentJob.citation_style.toUpperCase()}</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span>{currentJob.target_audience.replace(/_/g, " ")}</span>
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <button
-            onClick={startEdit}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
-          >
-            <Edit className="w-4 h-4" />
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" onClick={startEdit}>
+            <Edit />
             Edit
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => handleGenerate()}
             disabled={generating || isPolling || selectedChapters.size === 0}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            loading={generating || isPolling}
           >
-            {generating || isPolling ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" />
-                Generate Selected
-              </>
-            )}
-          </button>
+            {!generating && !isPolling && <Play />}
+            {generating || isPolling
+              ? "Generating..."
+              : `Generate ${selectedChapters.size || ""}`.trim()}
+          </Button>
         </div>
       </div>
 
       {genError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5" role="alert">
-          <p className="font-medium text-red-800">Generation failed to start</p>
-          <p className="text-sm text-red-600 mt-1">{genError}</p>
+        <div className="rounded-md border border-danger-soft bg-danger-soft/40 p-4 text-sm text-danger">
+          <p className="font-medium">Generation failed to start</p>
+          <p className="mt-1 text-danger/80">{genError}</p>
         </div>
       )}
 
       {isPolling && pollStatus && <GenerationProgress status={pollStatus} />}
 
       {pollStatus?.phase === "error" && errorTraceback && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5" role="alert">
-          <p className="font-medium text-red-800">Generation failed</p>
-          <p className="text-sm text-red-600 mt-1">{pollStatus.message}</p>
+        <div className="rounded-md border border-danger-soft bg-danger-soft/40 p-4 text-sm text-danger">
+          <p className="font-medium">Generation failed</p>
+          <p className="mt-1 text-danger/80">{pollStatus.message}</p>
           {errorTraceback.includes("Traceback") && (
             <details className="mt-3">
-              <summary className="text-xs text-red-700 cursor-pointer">Show traceback</summary>
-              <pre className="mt-2 text-xs text-red-800 bg-red-100 p-3 rounded-lg overflow-auto max-h-64">
+              <summary className="cursor-pointer text-xs">Show traceback</summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-danger-soft p-3 text-2xs text-danger">
                 {errorTraceback}
               </pre>
             </details>
@@ -329,294 +314,293 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <button
-          onClick={() => setShowOptions(!showOptions)}
-          className="flex items-center justify-between w-full"
-        >
+      <Card>
+        <CardHeader>
           <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-slate-500" />
-            <span className="font-semibold text-slate-800">Generation Options</span>
+            <CardTitle>Generation options</CardTitle>
           </div>
-          {showOptions ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-        </button>
-
-        {showOptions && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Style Template</label>
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+          <CardDescription>Style, output formats, and pipeline toggles</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Style template</Label>
+            <Select value={style} onValueChange={setStyle}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {STYLE_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Output Formats</label>
-              <div className="flex gap-3">
-                {FORMAT_OPTIONS.map((fmt) => (
-                  <label key={fmt.value} className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={formats.includes(fmt.value)}
-                      onChange={() => toggleFormat(fmt.value)}
-                      className="rounded border-slate-300"
-                    />
-                    {fmt.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={skipReview}
-                  onChange={(e) => setSkipReview(e.target.checked)}
-                  className="rounded border-slate-300"
-                />
-                Skip review
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={skipHumanize}
-                  onChange={(e) => setSkipHumanize(e.target.checked)}
-                  className="rounded border-slate-300"
-                />
-                Skip humanize
-              </label>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Output formats</Label>
+            <div className="flex flex-wrap gap-3 pt-1">
+              {FORMAT_OPTIONS.map((fmt) => (
+                <label key={fmt.value} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={formats.includes(fmt.value)}
+                    onCheckedChange={() => toggleFormat(fmt.value)}
+                  />
+                  {fmt.label}
+                </label>
+              ))}
             </div>
           </div>
-        )}
-      </div>
+          <div className="flex flex-wrap gap-6 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={skipReview}
+                onCheckedChange={(c) => setSkipReview(!!c)}
+              />
+              Skip review
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={skipHumanize}
+                onCheckedChange={(c) => setSkipHumanize(!!c)}
+              />
+              Skip humanize
+            </label>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard icon={<FileText className="w-5 h-5 text-blue-500" />} label="Chapters" value={chapters.length} />
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
-          icon={<BookOpen className="w-5 h-5 text-green-500" />}
-          label="Total Words"
+          icon={<FileText className="h-4 w-4" />}
+          label="Chapters"
+          value={chapters.length}
+        />
+        <StatCard
+          icon={<BookOpen className="h-4 w-4" />}
+          label="Total words"
           value={chapters.reduce((sum, ch) => sum + ch.word_count, 0).toLocaleString()}
         />
-        <StatCard icon={<BarChart3 className="w-5 h-5 text-purple-500" />} label="Avg AI Score" value={avgAiScore} />
+        <StatCard
+          icon={<BarChart3 className="h-4 w-4" />}
+          label="Avg AI score"
+          value={avgAiScore}
+        />
       </div>
 
       <div>
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Chapters</h3>
-        <div className="space-y-3">
+        <h3 className="mb-3 text-base font-semibold text-foreground">Chapters</h3>
+        <Card className="divide-y divide-border">
           {chapters.map((ch) => (
             <div
               key={ch.chapter_number}
-              className="block bg-white rounded-xl border border-slate-200 p-5 hover:border-blue-300 hover:shadow-sm transition-all"
+              className="flex items-center justify-between gap-3 p-4 transition-colors first:rounded-t-lg last:rounded-b-lg hover:bg-muted/30"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <input
-                    type="checkbox"
-                    checked={selectedChapters.has(ch.chapter_number)}
-                    onChange={() => toggleChapter(ch.chapter_number)}
-                    className="rounded border-slate-300"
-                    aria-label={`Select chapter ${ch.chapter_number}`}
-                  />
-                  <Link href={`/editor/${jobId}/${ch.chapter_number}`}>
-                    <h4 className="font-semibold text-slate-800 hover:text-blue-600">
-                      Chapter {ch.chapter_number}: {ch.name}
-                    </h4>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
-                      <span>{ch.word_count.toLocaleString()} words</span>
-                      {ch.ai_score !== null && (
-                        <span className={ch.ai_score < 50 ? "text-green-600" : "text-amber-600"}>
-                          AI: {ch.ai_score.toFixed(1)}
-                        </span>
-                      )}
-                    </div>
-                  </Link>
-                </div>
-                <div className="flex items-center gap-3">
-                  <StatusBadge status={ch.status} />
-                  <button
-                    onClick={() => handleGenerate([ch.chapter_number])}
-                    disabled={generating || isPolling}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    <Play className="w-3 h-3" />
-                    Generate
-                  </button>
-                </div>
+              <div className="flex min-w-0 items-center gap-3">
+                <Checkbox
+                  checked={selectedChapters.has(ch.chapter_number)}
+                  onCheckedChange={() => toggleChapter(ch.chapter_number)}
+                  aria-label={`Select chapter ${ch.chapter_number}`}
+                />
+                <Link href={`/editor/${jobId}/${ch.chapter_number}`} className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground hover:text-primary">
+                    Chapter {ch.chapter_number}: {ch.name}
+                  </p>
+                  <div className="mt-1 flex items-center gap-3 text-2xs text-muted-foreground">
+                    <span>{ch.word_count.toLocaleString()} words</span>
+                    {ch.ai_score !== null && (
+                      <span
+                        className={
+                          ch.ai_score < 50 ? "text-success" : "text-warning"
+                        }
+                      >
+                        AI: {ch.ai_score.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge status={ch.status} size="sm" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleGenerate([ch.chapter_number])}
+                  disabled={generating || isPolling}
+                  className="text-primary hover:bg-primary/10 hover:text-primary"
+                >
+                  <Play />
+                  Generate
+                </Button>
               </div>
             </div>
           ))}
-        </div>
+        </Card>
       </div>
 
-      {isEditing && editForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800">Edit Job</h3>
-              <button onClick={() => setIsEditing(false)} className="p-1 text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Topic</label>
-              <input
-                type="text"
-                value={editForm.topic}
-                onChange={(e) => setEditForm({ ...editForm, topic: e.target.value })}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Paper Type</label>
-                <select
-                  value={editForm.paper_type}
-                  onChange={(e) => setEditForm({ ...editForm, paper_type: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
-                >
-                  <option value="literature_review">Literature Review</option>
-                  <option value="empirical_study">Empirical Study</option>
-                  <option value="theoretical">Theoretical</option>
-                  <option value="mixed_methods">Mixed Methods</option>
-                  <option value="technical_report">Technical Report</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Citation Style</label>
-                <select
-                  value={editForm.citation_style}
-                  onChange={(e) => setEditForm({ ...editForm, citation_style: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
-                >
-                  <option value="apa">APA</option>
-                  <option value="mla">MLA</option>
-                  <option value="chicago">Chicago</option>
-                  <option value="ieee">IEEE</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Target Audience</label>
-                <select
-                  value={editForm.target_audience}
-                  onChange={(e) => setEditForm({ ...editForm, target_audience: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
-                >
-                  <option value="graduate_students">Graduate Students</option>
-                  <option value="undergraduate">Undergraduate</option>
-                  <option value="professionals">Professionals</option>
-                  <option value="general">General</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-700">Research Queries</label>
-                <button onClick={addEditQuery} className="text-xs text-blue-600 hover:text-blue-800">+ Add</button>
-              </div>
-              <div className="space-y-2">
-                {editForm.research_queries.map((q, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={q}
-                      onChange={(e) => updateEditQuery(i, e.target.value)}
-                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm"
-                    />
-                    {editForm.research_queries.length > 1 && (
-                      <button onClick={() => removeEditQuery(i)} className="p-2 text-slate-400 hover:text-red-600">
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-700">Chapters</label>
-                <button onClick={addEditChapter} className="text-xs text-blue-600 hover:text-blue-800">+ Add</button>
-              </div>
-              <div className="space-y-3">
-                {editForm.chapters.map((ch, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={ch.name}
-                      onChange={(e) => updateEditChapter(i, "name", e.target.value)}
-                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm"
-                    />
-                    <select
-                      value={ch.template}
-                      onChange={(e) => updateEditChapter(i, "template", e.target.value)}
-                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm"
+      <Dialog open={isEditing} onOpenChange={setIsEditing}>
+        <DialogContent size="lg">
+          {editForm && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Edit job</DialogTitle>
+                <DialogDescription>
+                  Update the job configuration. Existing generated chapters are not affected.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Topic</Label>
+                  <Input
+                    value={editForm.topic || ""}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, topic: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>Paper type</Label>
+                    <Select
+                      value={editForm.paper_type}
+                      onValueChange={(v) =>
+                        setEditForm({ ...editForm, paper_type: v })
+                      }
                     >
-                      {CHAPTER_TEMPLATES.map((t) => (
-                        <option key={t.value} value={t.value}>{t.label}</option>
-                      ))}
-                    </select>
-                    {editForm.chapters.length > 1 && (
-                      <button onClick={() => removeEditChapter(i)} className="p-2 text-slate-400 hover:text-red-600">
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="literature_review">Literature Review</SelectItem>
+                        <SelectItem value="empirical_study">Empirical Study</SelectItem>
+                        <SelectItem value="theoretical">Theoretical</SelectItem>
+                        <SelectItem value="mixed_methods">Mixed Methods</SelectItem>
+                        <SelectItem value="technical_report">Technical Report</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                ))}
+                  <div className="space-y-2">
+                    <Label>Citation style</Label>
+                    <Select
+                      value={editForm.citation_style}
+                      onValueChange={(v) =>
+                        setEditForm({ ...editForm, citation_style: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="apa">APA</SelectItem>
+                        <SelectItem value="mla">MLA</SelectItem>
+                        <SelectItem value="chicago">Chicago</SelectItem>
+                        <SelectItem value="ieee">IEEE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target audience</Label>
+                    <Select
+                      value={editForm.target_audience}
+                      onValueChange={(v) =>
+                        setEditForm({ ...editForm, target_audience: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="graduate_students">Graduate Students</SelectItem>
+                        <SelectItem value="undergraduate">Undergraduate</SelectItem>
+                        <SelectItem value="professionals">Professionals</SelectItem>
+                        <SelectItem value="general">General</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Research queries</Label>
+                  {editForm.research_queries.map((q, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        value={q}
+                        onChange={(e) => {
+                          const queries = [...editForm.research_queries];
+                          queries[i] = e.target.value;
+                          setEditForm({ ...editForm, research_queries: queries });
+                        }}
+                      />
+                      {editForm.research_queries.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const queries = editForm.research_queries.filter(
+                              (_, j) => j !== i
+                            );
+                            setEditForm({ ...editForm, research_queries: queries });
+                          }}
+                          aria-label={`Remove query ${i + 1}`}
+                        >
+                          <X />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={saveEdit}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Save className="w-4 h-4" />
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
-              <button onClick={() => setIsEditing(false)} className="px-4 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsEditing(false)}
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={saveEdit} loading={saving}>
+                  Save changes
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function GenerationProgress({ status }: { status: GenerationStatus }) {
-  const phaseLabels: Record<string, string> = {
-    queued: "Queued",
-    starting: "Starting",
-    research: "Researching",
-    writing: "Writing",
-    review: "Reviewing",
-    humanize: "Humanizing",
-    export: "Exporting",
-    complete: "Complete",
-    error: "Error",
-  };
+const phaseLabels: Record<string, { label: string; icon: React.ReactNode }> = {
+  queued: { label: "Queued", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  starting: { label: "Starting", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  research: { label: "Researching", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  writing: { label: "Writing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  review: { label: "Reviewing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  humanize: { label: "Humanizing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  export: { label: "Exporting", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  complete: { label: "Complete", icon: <CheckCircle2 className="h-4 w-4 text-success" /> },
+  error: { label: "Error", icon: <AlertCircle className="h-4 w-4 text-danger" /> },
+};
 
+function GenerationProgress({ status }: { status: GenerationStatus }) {
+  const phase = phaseLabels[status.phase] || {
+    label: status.phase,
+    icon: <Loader2 className="h-4 w-4 animate-spin" />,
+  };
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-      <div className="flex items-center gap-3 mb-3">
-        <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-        <span className="font-medium text-blue-800">{phaseLabels[status.phase] || status.phase}</span>
-        <span className="text-sm text-blue-600">{status.progress}%</span>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border border-info-soft bg-info-soft/40 p-4"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-info">{phase.icon}</span>
+        <span className="text-sm font-medium text-info">{phase.label}</span>
+        <span className="ml-auto text-2xs text-muted-foreground">
+          {status.progress}%
+        </span>
       </div>
-      <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
-        <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${status.progress}%` }} />
-      </div>
-      <p className="text-sm text-blue-600">{status.message}</p>
-    </div>
+      <Progress value={status.progress} className="bg-info/20" indicatorClassName="bg-info" />
+      <p className="mt-2 text-2xs text-muted-foreground">{status.message}</p>
+    </motion.div>
   );
 }

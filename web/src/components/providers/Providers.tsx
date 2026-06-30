@@ -4,6 +4,7 @@ import { ThemeProvider as NextThemesProvider, type ThemeProviderProps } from "ne
 import { MotionConfig } from "framer-motion";
 import { Toaster } from "@/components/ui/Toaster";
 import { TooltipProvider } from "@/components/ui/Tooltip";
+import { CommandPalette } from "@/components/command/CommandPalette";
 
 export function Providers({ children, ...props }: ThemeProviderProps) {
   return (
@@ -20,6 +21,7 @@ export function Providers({ children, ...props }: ThemeProviderProps) {
       >
         <TooltipProvider delayDuration={250}>
           {children}
+          <CommandPalette />
           <Toaster />
         </TooltipProvider>
       </MotionConfig>
