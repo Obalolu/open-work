@@ -11,7 +11,7 @@ export function StatCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number | string;
+  value: number | string | React.ReactNode;
   trend?: { value: number; positive?: boolean };
   className?: string;
 }) {

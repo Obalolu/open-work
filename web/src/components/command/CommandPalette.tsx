@@ -14,6 +14,9 @@ import {
   Moon,
   Monitor,
   Search,
+  Quote,
+  Shield,
+  Activity,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { api } from "@/lib/api";
@@ -106,6 +109,36 @@ export function CommandPalette() {
                       icon={<Settings className="h-4 w-4" />}
                       label="Go to Settings"
                       onSelect={() => runCommand(() => router.push("/config"))}
+                    />
+                    <PaletteItem
+                      icon={<Settings className="h-4 w-4" />}
+                      label="Go to Research"
+                      onSelect={() => runCommand(() => router.push("/research"))}
+                    />
+                    <PaletteItem
+                      icon={<Settings className="h-4 w-4" />}
+                      label="Go to Proxy"
+                      onSelect={() => runCommand(() => router.push("/proxy"))}
+                    />
+                    <PaletteItem
+                      icon={<Settings className="h-4 w-4" />}
+                      label="Go to Settings"
+                      onSelect={() => runCommand(() => router.push("/config"))}
+                    />
+                    <PaletteItem
+                      icon={<Quote className="h-4 w-4" />}
+                      label="Go to Research"
+                      onSelect={() => runCommand(() => router.push("/research"))}
+                    />
+                    <PaletteItem
+                      icon={<Shield className="h-4 w-4" />}
+                      label="Go to Proxy"
+                      onSelect={() => runCommand(() => router.push("/proxy"))}
+                    />
+                    <PaletteItem
+                      icon={<Activity className="h-4 w-4" />}
+                      label="Go to Activity"
+                      onSelect={() => runCommand(() => router.push("/activity"))}
                     />
                   </Command.Group>
 

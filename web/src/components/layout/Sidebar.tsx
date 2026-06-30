@@ -3,13 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { LayoutDashboard, FileText, Settings, Sparkles, BookOpen } from "lucide-react";
+import {
+  LayoutDashboard,
+  FileText,
+  Settings,
+  Sparkles,
+  BookOpen,
+  Quote,
+  Shield,
+  Activity,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: FileText },
+  { href: "/research", label: "Research", icon: Quote },
+  { href: "/proxy", label: "Proxy", icon: Shield },
+  { href: "/activity", label: "Activity", icon: Activity },
   { href: "/config", label: "Settings", icon: Settings },
 ];
 
@@ -26,9 +38,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
             open-work
           </h1>
-          <p className="truncate text-xs text-muted-foreground">
-            Research writer
-          </p>
+          <p className="truncate text-xs text-muted-foreground">Research writer</p>
         </div>
       </div>
 

@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Empty } from "@/components/ui/Empty";
+import { Input } from "@/components/ui/Input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/Select";
 import { toast } from "sonner";
 import {
   Brain,
@@ -18,6 +26,10 @@ import {
   X,
   Shield,
   Info,
+  Eye,
+  EyeOff,
+  KeyRound,
+  FlaskConical,
 } from "lucide-react";
 
 export default function ConfigPage() {
@@ -127,34 +139,7 @@ export default function ConfigPage() {
         </TabsList>
 
         <TabsContent value="llm" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>LLM configuration</CardTitle>
-              <CardDescription>
-                Edit <code className="rounded bg-muted px-1 py-0.5 text-2xs">~/.config/open-work/config.toml</code> to change these values.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-0">
-              {config?.llm && (
-                <>
-                  <ConfigRow label="Provider" value={config.llm.provider} />
-                  <ConfigRow label="Model" value={config.llm.model} />
-                  <ConfigRow
-                    label="Temperature"
-                    value={String(config.llm.temperature)}
-                  />
-                  <ConfigRow
-                    label="API key"
-                    value={config.llm.api_key_set ? "Set" : "Not set"}
-                    status={config.llm.api_key_set}
-                  />
-                  {config.llm.base_url && (
-                    <ConfigRow label="Base URL" value={config.llm.base_url} />
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <LlmSettings config={config} />
         </TabsContent>
 
         <TabsContent value="research" className="mt-4">
@@ -250,13 +235,186 @@ export default function ConfigPage() {
             </CardHeader>
             <CardContent className="space-y-2 pt-0 text-sm">
               <ConfigRow label="Version" value="1.0.0" />
-              <ConfigRow label="Editor" value="Next.js + TipTap (soon)" />
+              <ConfigRow label="Editor" value="Next.js + TipTap" />
               <ConfigRow label="Theme" value="Soft slate, system default" />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function LlmSettings({ config }: { config: AppConfig | null }) {
+  const [provider, setProvider] = useState(config?.llm.provider ?? "openai");
+  const [model, setModel] = useState(config?.llm.model ?? "gpt-4o-mini");
+  const [temperature, setTemperature] = useState(
+    String(config?.llm.temperature ?? 0.7)
+  );
+  const [baseUrl, setBaseUrl] = useState(config?.llm.base_url ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!config) return;
+    setProvider(config.llm.provider);
+    setModel(config.llm.model);
+    setTemperature(String(config.llm.temperature));
+    setBaseUrl(config.llm.base_url);
+    setApiKey("");
+    setDirty(false);
+  }, [config]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.config.update({
+        llm: {
+          provider,
+          model,
+          temperature: parseFloat(temperature) || 0.7,
+          base_url: baseUrl,
+          api_key: apiKey || undefined,
+        },
+      });
+      toast.success("LLM settings saved", {
+        description: "Restart the API to apply changes to running jobs.",
+      });
+      setApiKey("");
+      setDirty(false);
+    } catch (e) {
+      toast.error("Failed to save", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+    setSaving(false);
+  };
+
+  const markDirty = () => setDirty(true);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <div>
+          <CardTitle>LLM configuration</CardTitle>
+          <CardDescription>
+            Configure the language model provider and credentials.
+          </CardDescription>
+        </div>
+        {dirty && (
+          <span className="rounded-full bg-warning-soft px-2 py-0.5 text-2xs font-medium text-warning">
+            Unsaved
+          </span>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Provider</label>
+            <Select
+              value={provider}
+              onValueChange={(v) => {
+                setProvider(v);
+                markDirty();
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="deepseek">DeepSeek</SelectItem>
+                <SelectItem value="ollama">Ollama (local)</SelectItem>
+                <SelectItem value="anthropic">Anthropic (via proxy)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Model</label>
+            <Input
+              value={model}
+              onChange={(e) => {
+                setModel(e.target.value);
+                markDirty();
+              }}
+              placeholder="gpt-4o-mini"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Temperature</label>
+            <Input
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              value={temperature}
+              onChange={(e) => {
+                setTemperature(e.target.value);
+                markDirty();
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Base URL (optional)</label>
+            <Input
+              value={baseUrl}
+              onChange={(e) => {
+                setBaseUrl(e.target.value);
+                markDirty();
+              }}
+              placeholder="https://api.openai.com/v1"
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <KeyRound className="h-3.5 w-3.5" />
+              API key
+              {config?.llm.api_key_set && (
+                <span className="rounded-full bg-success-soft px-1.5 py-0.5 text-2xs font-medium text-success">
+                  Set
+                </span>
+              )}
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    markDirty();
+                  }}
+                  placeholder={
+                    config?.llm.api_key_set
+                      ? "Leave blank to keep current key"
+                      : "sk-..."
+                  }
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowKey((v) => !v)}
+                aria-label={showKey ? "Hide key" : "Show key"}
+              >
+                {showKey ? <EyeOff /> : <Eye />}
+              </Button>
+              <Button variant="outline">
+                <FlaskConical />
+                Test
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty}>
+            Save changes
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -15,6 +15,9 @@ const breadcrumbsByPath: Record<string, { label: string; href?: string }[]> = {
   "/": [{ label: "Dashboard" }],
   "/jobs": [{ label: "Dashboard", href: "/" }, { label: "Jobs" }],
   "/config": [{ label: "Dashboard", href: "/" }, { label: "Settings" }],
+  "/research": [{ label: "Dashboard", href: "/" }, { label: "Research" }],
+  "/proxy": [{ label: "Dashboard", href: "/" }, { label: "Proxy" }],
+  "/activity": [{ label: "Dashboard", href: "/" }, { label: "Activity" }],
 };
 
 export function Header({
@@ -114,6 +117,17 @@ export function Header({
           <kbd className="ml-2 flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-2xs font-medium">
             <Command className="h-2.5 w-2.5" />K
           </kbd>
+        </button>
+        <button
+          onClick={() => {
+            const e = new KeyboardEvent("keydown", { key: "?" });
+            window.dispatchEvent(e);
+          }}
+          className="hidden h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:flex"
+          aria-label="Show keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+        >
+          <span className="font-mono text-sm">?</span>
         </button>
         <button
           onClick={handleRefresh}
