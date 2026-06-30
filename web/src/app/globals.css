@@ -2,18 +2,163 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground: #0f172a;
-  --background: #f8fafc;
-  --muted: #94a3b8;
-  --border: #e2e8f0;
-  --surface: #ffffff;
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --surface: 0 0% 100%;
+    --surface-elevated: 0 0% 100%;
+    --surface-sunken: 210 40% 96%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --subtle: 210 40% 94%;
+    --subtle-foreground: 215 19% 35%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 88%;
+    --ring: 221 83% 53%;
+
+    --primary: 221 83% 53%;
+    --primary-hover: 221 83% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --accent: 221 83% 53%;
+    --accent-hover: 221 83% 46%;
+    --accent-foreground: 0 0% 100%;
+
+    --success: 142 71% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 142 71% 95%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 38 92% 94%;
+
+    --danger: 0 72% 50%;
+    --danger-foreground: 0 0% 100%;
+    --danger-soft: 0 86% 96%;
+
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+    --info-soft: 199 95% 95%;
+
+    --radius: 0.625rem;
+
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+
+    --surface: 222 47% 9%;
+    --surface-elevated: 222 40% 12%;
+    --surface-sunken: 222 47% 5%;
+
+    --muted: 222 30% 14%;
+    --muted-foreground: 215 20% 70%;
+
+    --subtle: 222 30% 18%;
+    --subtle-foreground: 215 20% 80%;
+
+    --border: 222 30% 18%;
+    --input: 222 30% 22%;
+    --ring: 217 91% 60%;
+
+    --primary: 217 91% 60%;
+    --primary-hover: 217 91% 67%;
+    --primary-foreground: 222 47% 6%;
+
+    --accent: 217 91% 60%;
+    --accent-hover: 217 91% 67%;
+    --accent-foreground: 222 47% 6%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 222 47% 6%;
+    --success-soft: 142 50% 14%;
+
+    --warning: 38 92% 58%;
+    --warning-foreground: 222 47% 6%;
+    --warning-soft: 32 50% 16%;
+
+    --danger: 0 72% 58%;
+    --danger-foreground: 222 47% 6%;
+    --danger-soft: 0 60% 18%;
+
+    --info: 199 89% 58%;
+    --info-foreground: 222 47% 6%;
+    --info-soft: 199 60% 16%;
+  }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: system-ui, -apple-system, sans-serif;
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--foreground));
+  }
+
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.5);
+    border-radius: 4px;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--subtle-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--subtle)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+
+  .glass {
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    background-color: hsl(var(--background) / 0.7);
+  }
 }
 
 /* TipTap editor styles */
@@ -26,34 +171,38 @@ body {
   font-weight: 700;
   margin-bottom: 1rem;
   margin-top: 1.5rem;
+  color: hsl(var(--foreground));
+  letter-spacing: -0.02em;
 }
 
 .tiptap-editor h2 {
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
-  margin-top: 1.25rem;
-  color: var(--foreground);
-  border-bottom: 1px solid var(--border);
+  margin-top: 1.5rem;
+  color: hsl(var(--foreground));
+  border-bottom: 1px solid hsl(var(--border));
   padding-bottom: 0.5rem;
+  letter-spacing: -0.01em;
 }
 
 .tiptap-editor h3 {
   font-size: 1.25rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
-  margin-top: 1rem;
+  margin-top: 1.25rem;
+  color: hsl(var(--foreground));
 }
 
 .tiptap-editor p {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
   line-height: 1.75;
 }
 
 .tiptap-editor ul,
 .tiptap-editor ol {
   margin-left: 1.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 
 .tiptap-editor ul {
@@ -65,65 +214,72 @@ body {
 }
 
 .tiptap-editor li {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
   line-height: 1.6;
 }
 
 .tiptap-editor blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 1rem;
-  margin-left: 0;
-  margin-bottom: 0.75rem;
-  color: #475569;
+  border-left: 3px solid hsl(var(--primary) / 0.5);
+  padding: 0.25rem 0 0.25rem 1rem;
+  margin: 1rem 0;
+  color: hsl(var(--muted-foreground));
   font-style: italic;
 }
 
 .tiptap-editor code {
-  background: #f1f5f9;
+  background: hsl(var(--muted));
   padding: 0.15rem 0.35rem;
   border-radius: 0.25rem;
-  font-size: 0.875rem;
+  font-size: 0.875em;
+  font-family: var(--font-mono);
 }
 
 .tiptap-editor pre {
-  background: #1e293b;
-  color: #e2e8f0;
+  background: hsl(var(--surface-sunken));
+  color: hsl(var(--foreground));
   padding: 1rem;
   border-radius: 0.5rem;
   overflow-x: auto;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.6;
 }
 
 .tiptap-editor pre code {
   background: none;
   padding: 0;
   color: inherit;
+  font-size: inherit;
 }
 
 .tiptap-editor hr {
   border: none;
-  border-top: 2px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   margin: 2rem 0;
 }
 
 .tiptap-editor mark {
-  background: #fef08a;
+  background: hsl(var(--warning-soft));
+  color: hsl(var(--warning-foreground));
   padding: 0.1rem 0.2rem;
-  border-radius: 0.15rem;
+  border-radius: 0.2rem;
 }
 
 .tiptap-editor a {
-  color: #2563eb;
+  color: hsl(var(--primary));
   text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .tiptap-editor a:hover {
-  color: #1d4ed8;
+  color: hsl(var(--primary-hover));
 }
 
 .tiptap-editor strong {
   font-weight: 600;
+  color: hsl(var(--foreground));
 }
 
 .tiptap-editor em {
@@ -133,10 +289,42 @@ body {
 .tiptap-editor .references {
   font-size: 0.875rem;
   line-height: 1.5;
+  color: hsl(var(--muted-foreground));
 }
 
 .tiptap-editor .references p {
   margin-bottom: 0.5rem;
   text-indent: -1.5rem;
   padding-left: 1.5rem;
+}
+
+.tiptap-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.tiptap-editor th,
+.tiptap-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.tiptap-editor th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+
+/* TipTap ProseMirror node selected style */
+.ProseMirror-focused {
+  outline: none;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: hsl(var(--muted-foreground));
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }

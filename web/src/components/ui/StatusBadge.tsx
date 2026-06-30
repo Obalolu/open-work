@@ -1,11 +1,31 @@
 "use client";
 
+import { cn } from "@/lib/cn";
+
 const colorMap: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-600",
-  pending: "bg-slate-100 text-slate-600",
-  generating: "bg-blue-100 text-blue-700",
-  complete: "bg-green-100 text-green-700",
-  error: "bg-red-100 text-red-700",
+  draft: "bg-subtle text-subtle-foreground",
+  pending: "bg-subtle text-subtle-foreground",
+  queued: "bg-info-soft text-info",
+  starting: "bg-info-soft text-info",
+  research: "bg-info-soft text-info",
+  writing: "bg-info-soft text-info",
+  review: "bg-warning-soft text-warning",
+  humanize: "bg-warning-soft text-warning",
+  export: "bg-info-soft text-info",
+  generating: "bg-info-soft text-info",
+  complete: "bg-success-soft text-success",
+  error: "bg-danger-soft text-danger",
+};
+
+const dotMap: Record<string, string> = {
+  generating: "bg-info animate-pulse-soft",
+  starting: "bg-info animate-pulse-soft",
+  queued: "bg-info animate-pulse-soft",
+  research: "bg-info animate-pulse-soft",
+  writing: "bg-info animate-pulse-soft",
+  review: "bg-warning animate-pulse-soft",
+  humanize: "bg-warning animate-pulse-soft",
+  export: "bg-info animate-pulse-soft",
 };
 
 export function StatusBadge({
@@ -15,14 +35,27 @@ export function StatusBadge({
   status: string;
   size?: "sm" | "md";
 }) {
-  const padding = size === "sm" ? "px-2 py-0.5" : "px-3 py-1";
+  const padding = size === "sm" ? "px-2 py-0.5 text-2xs" : "px-2.5 py-0.5 text-xs";
+  const showDot = ["generating", "queued", "writing", "research", "humanize", "review", "starting", "export"].includes(
+    status
+  );
   return (
     <span
       role="status"
-      className={`${padding} rounded-full text-xs font-medium ${
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full font-medium",
+        padding,
         colorMap[status] || colorMap.pending
-      }`}
+      )}
     >
+      {showDot && (
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            dotMap[status] || "bg-muted-foreground"
+          )}
+        />
+      )}
       {status}
     </span>
   );
