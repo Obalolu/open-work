@@ -1,19 +1,45 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { ChapterDetail, Source } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { Empty } from "@/components/ui/Empty";
+import { Input } from "@/components/ui/Input";
+import { toast } from "sonner";
+import type {
+  ChapterDetail,
+  ChapterRevisionSummary,
+  HumanizerAttemptSummary,
+  Source,
+} from "@/lib/types";
+import { TipTapEditor, htmlToMarkdown } from "@/components/editor/TipTapEditor";
+import { markdownToHtml } from "@/components/editor/markdownToHtml";
 import {
   ArrowLeft,
   Download,
   FileText,
   ExternalLink,
-  Loader2,
   AlertTriangle,
+  Search,
+  Quote,
+  History,
+  GitCompare,
+  Sparkles,
+  Check,
 } from "lucide-react";
+import { cn } from "@/lib/cn";
+
+interface Section {
+  title: string;
+  body: string;
+  id: string;
+}
 
 export default function EditorPage() {
   const params = useParams();
@@ -23,9 +49,16 @@ export default function EditorPage() {
 
   const [chapter, setChapter] = useState<ChapterDetail | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [revisions, setRevisions] = useState<ChapterRevisionSummary[]>([]);
+  const [attempts, setAttempts] = useState<HumanizerAttemptSummary[]>([]);
+  const [activeTab, setActiveTab] = useState<"content" | "sources" | "revisions">(
+    "content"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"content" | "sources">("content");
+  const [sourceSearch, setSourceSearch] = useState("");
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const sectionsRef = useRef<(HTMLElement | null)[]>([]);
 
   useEffect(() => {
     if (isNaN(chapterNum)) {
@@ -37,12 +70,16 @@ export default function EditorPage() {
       setLoading(true);
       setError(null);
       try {
-        const [ch, src] = await Promise.all([
+        const [ch, src, revs, atts] = await Promise.all([
           api.chapters.get(jobId, chapterNum),
           api.research.sources(jobId).catch(() => []),
+          api.chapters.revisions(jobId, chapterNum).catch(() => []),
+          api.chapters.humanizerAttempts(jobId, chapterNum).catch(() => []),
         ]);
         setChapter(ch);
         setSources(src);
+        setRevisions(revs);
+        setAttempts(atts);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -51,178 +88,272 @@ export default function EditorPage() {
     load();
   }, [jobId, chapterNum]);
 
+  // Scroll-spy for floating TOC
+  useEffect(() => {
+    if (activeTab !== "content") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) {
+          setActiveSection((visible[0].target as HTMLElement).id);
+        }
+      },
+      { rootMargin: "-30% 0px -50% 0px" }
+    );
+    sectionsRef.current.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [chapter, activeTab]);
+
+  const handleSave = async (markdown: string) => {
+    try {
+      const updated = await api.chapters.update(jobId, chapterNum, {
+        content: markdown,
+        source: "tiptap",
+      });
+      setChapter(updated);
+      // refresh revisions
+      const revs = await api.chapters.revisions(jobId, chapterNum);
+      setRevisions(revs);
+      toast.success("Chapter saved");
+    } catch (e) {
+      toast.error("Save failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-6 w-1/3" />
+            <Skeleton className="h-3 w-1/5" />
+          </div>
+        </div>
+        <Skeleton className="h-96" />
       </div>
     );
   }
 
   if (error || !chapter) {
     return (
-      <div className="text-center py-12">
-        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-        <p className="text-slate-500 mb-2">{error || "Chapter not found"}</p>
-        <Link href={`/jobs/${jobId}`} className="text-blue-600 hover:underline mt-2 inline-block">
-          Back to job
-        </Link>
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning-soft text-warning">
+          <AlertTriangle className="h-6 w-6" />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {error || "Chapter not found"}
+        </p>
+        <Button variant="link" asChild className="mt-2">
+          <Link href={`/jobs/${jobId}`}>Back to job</Link>
+        </Button>
       </div>
     );
   }
 
   const sections = parseSections(chapter.content || "");
+  const filteredSources = sources.filter(
+    (s) =>
+      s.title.toLowerCase().includes(sourceSearch.toLowerCase()) ||
+      s.authors.some((a) =>
+        a.toLowerCase().includes(sourceSearch.toLowerCase())
+      )
+  );
+  const initialHtml = markdownToHtml(chapter.content || "");
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <Link
-          href={`/jobs/${jobId}`}
-          className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-          aria-label="Back to job"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 truncate">
-            Chapter {chapter.chapter_number}: {chapter.name}
-          </h1>
-          <p className="text-slate-500 mt-1">
-            {chapter.word_count.toLocaleString()} words
-          </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href={`/jobs/${jobId}`} aria-label="Back to job">
+              <ArrowLeft />
+            </Link>
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+              Chapter {chapter.chapter_number}: {chapter.name}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {chapter.word_count.toLocaleString()} words
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <a
-            href={api.export.url(jobId, chapterNum, "md")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> MD
-          </a>
-          <a
-            href={api.export.url(jobId, chapterNum, "docx")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> DOCX
-          </a>
-          <a
-            href={api.export.url(jobId, chapterNum, "pdf")}
-            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download</span> PDF
-          </a>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(["md", "docx", "pdf"] as const).map((fmt) => (
+            <Button key={fmt} variant="outline" size="sm" asChild>
+              <a href={api.export.url(jobId, chapterNum, fmt)} download>
+                <Download />
+                <span className="uppercase">{fmt}</span>
+              </a>
+            </Button>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid gap-6 lg:grid-cols-4">
         <div className="lg:col-span-3">
-          <div className="flex gap-1 mb-4 border-b border-slate-200">
-            <button
-              onClick={() => setActiveTab("content")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-                activeTab === "content"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Content
-            </button>
-            <button
-              onClick={() => setActiveTab("sources")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-                activeTab === "sources"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Sources ({sources.length})
-            </button>
-          </div>
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+          >
+            <TabsList>
+              <TabsTrigger value="content">Content</TabsTrigger>
+              <TabsTrigger value="sources">Sources ({sources.length})</TabsTrigger>
+              <TabsTrigger value="revisions">Revisions ({revisions.length})</TabsTrigger>
+            </TabsList>
 
-          {activeTab === "content" ? (
-            <div className="bg-white rounded-xl border border-slate-200">
-              <div className="p-6 md:p-8">
-                {sections.length > 0 ? (
-                  <div className="space-y-6">
-                    {sections.map((section, i) => (
-                      <Section key={i} section={section} />
-                    ))}
-                  </div>
-                ) : (
-                  <div
-                    className="tiptap-editor prose max-w-none"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.content || "") }}
+            <TabsContent value="content" className="mt-0">
+              <Card>
+                <CardContent className="p-6 md:p-8">
+                  {chapter.content ? (
+                    sections.length > 0 ? (
+                      <SectionsView
+                        sections={sections}
+                        registerRef={(el, i) => {
+                          sectionsRef.current[i] = el;
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="tiptap-editor prose max-w-none"
+                        dangerouslySetInnerHTML={{ __html: initialHtml }}
+                      />
+                    )
+                  ) : (
+                    <Empty
+                      icon={<FileText className="h-5 w-5" />}
+                      title="Empty chapter"
+                      description="Generate this chapter from the job page to populate it."
+                    />
+                  )}
+                </CardContent>
+              </Card>
+
+              {chapter.content && (
+                <div className="mt-4">
+                  <TipTapEditor
+                    initialContent={initialHtml}
+                    placeholder="Start writing your chapter…"
+                    onSave={handleSave}
+                    autosaveMs={1500}
                   />
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-              {sources.length === 0 ? (
-                <p className="text-slate-500 text-center py-8">
-                  No sources found for this job
-                </p>
-              ) : (
-                sources.map((src) => (
-                  <div
-                    key={src.paper_id}
-                    className="border border-slate-200 rounded-lg p-4 hover:border-slate-300"
-                  >
-                    <h4 className="font-medium text-slate-800">
-                      {src.title}
-                    </h4>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {src.authors.slice(0, 3).join(", ")}
-                      {src.authors.length > 3 ? " et al." : ""}
-                      {src.year ? ` (${src.year})` : ""}
-                    </p>
-                    {src.abstract_summary && (
-                      <p className="text-sm text-slate-600 mt-2 line-clamp-2">
-                        {src.abstract_summary}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 mt-3 text-xs text-slate-400">
-                      {src.venue && <span>{src.venue}</span>}
-                      {src.citation_count > 0 && (
-                        <span>{src.citation_count} citations</span>
-                      )}
-                      {src.paper_url && (
-                        <a
-                          href={src.paper_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-500 hover:text-blue-700"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          Link
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))
+                </div>
               )}
-            </div>
-          )}
+            </TabsContent>
+
+            <TabsContent value="sources" className="mt-0">
+              <Card>
+                <CardContent className="space-y-4 p-5">
+                  {sources.length > 0 && (
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={sourceSearch}
+                        onChange={(e) => setSourceSearch(e.target.value)}
+                        placeholder="Search sources by title or author…"
+                        className="pl-9"
+                      />
+                    </div>
+                  )}
+                  {sources.length === 0 ? (
+                    <Empty
+                      icon={<Quote className="h-5 w-5" />}
+                      title="No sources found"
+                      description="This job has no research sources yet."
+                    />
+                  ) : filteredSources.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      No sources match &ldquo;{sourceSearch}&rdquo;.
+                    </p>
+                  ) : (
+                    filteredSources.map((src) => (
+                      <div
+                        key={src.paper_id}
+                        className="rounded-md border border-border p-4 transition-colors hover:border-subtle-foreground/30 hover:bg-muted/30"
+                      >
+                        <h4 className="text-sm font-medium text-foreground">
+                          {src.title}
+                        </h4>
+                        <p className="mt-1 text-2xs text-muted-foreground">
+                          {src.authors.slice(0, 3).join(", ")}
+                          {src.authors.length > 3 ? " et al." : ""}
+                          {src.year ? ` (${src.year})` : ""}
+                        </p>
+                        {src.abstract_summary && (
+                          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                            {src.abstract_summary}
+                          </p>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
+                          {src.venue && (
+                            <span className="rounded-full bg-muted px-2 py-0.5">
+                              {src.venue}
+                            </span>
+                          )}
+                          {src.citation_count > 0 && (
+                            <span>{src.citation_count} citations</span>
+                          )}
+                          {src.confidence > 0 && (
+                            <span>{Math.round(src.confidence * 100)}% confidence</span>
+                          )}
+                          {src.paper_url && (
+                            <a
+                              href={src.paper_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Open
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="revisions" className="mt-0">
+              <RevisionsView
+                jobId={jobId}
+                chapterNum={chapterNum}
+                revisions={revisions}
+                attempts={attempts}
+                onRestored={() => {
+                  api.chapters.get(jobId, chapterNum).then(setChapter);
+                  api.chapters.revisions(jobId, chapterNum).then(setRevisions);
+                }}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-3">Stats</h3>
-            <div className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Words</span>
-                <span className="font-medium text-slate-800">
+                <span className="text-muted-foreground">Words</span>
+                <span className="font-medium text-foreground">
                   {chapter.word_count.toLocaleString()}
                 </span>
               </div>
               {chapter.ai_score !== null && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">AI Score</span>
+                  <span className="text-muted-foreground">AI score</span>
                   <span
                     className={`font-medium ${
-                      chapter.ai_score < 50 ? "text-green-600" : "text-amber-600"
+                      chapter.ai_score < 50 ? "text-success" : "text-warning"
                     }`}
                   >
                     {chapter.ai_score.toFixed(1)}/100
@@ -231,132 +362,433 @@ export default function EditorPage() {
               )}
               {chapter.style_score !== null && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Style Score</span>
-                  <span className="font-medium text-slate-800">
+                  <span className="text-muted-foreground">Style score</span>
+                  <span className="font-medium text-foreground">
                     {chapter.style_score}/100
                   </span>
                 </div>
               )}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Status</span>
+                <span className="text-muted-foreground">Status</span>
                 <StatusBadge status={chapter.status} size="sm" />
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-3">Sections</h3>
-            <div className="space-y-2">
-              {sections.map((section, i) => (
-                <div
-                  key={i}
-                  className="text-sm text-slate-600 flex items-center gap-2"
-                >
-                  <FileText className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span className="truncate">{section.title || `Section ${i + 1}`}</span>
-                </div>
-              ))}
-              {sections.length === 0 && (
-                <p className="text-sm text-slate-400">No sections parsed</p>
-              )}
-            </div>
-          </div>
+          {sections.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Sections</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 pt-0">
+                {sections.map((s, i) => (
+                  <a
+                    key={s.id}
+                    href={`#${s.id}`}
+                    className={cn(
+                      "flex items-center gap-2 rounded-sm px-2 py-1 text-sm transition-colors hover:bg-muted",
+                      activeSection === s.id
+                        ? "bg-muted font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{s.title || `Section ${i + 1}`}</span>
+                  </a>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {attempts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Humanizer runs
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                {attempts.slice(0, 5).map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between text-2xs"
+                  >
+                    <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wider text-muted-foreground">
+                      {a.intensity}
+                    </span>
+                    {a.ai_score_before != null && a.ai_score_after != null && (
+                      <span className="inline-flex items-center gap-1 text-muted-foreground">
+                        {a.ai_score_before.toFixed(0)} → {a.ai_score_after.toFixed(0)}
+                        {a.ai_score_after < a.ai_score_before && (
+                          <Check className="h-3 w-3 text-success" />
+                        )}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Section({ section }: { section: { title: string; body: string } }) {
-  const ref = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el) {
-        el.innerHTML = renderMarkdown(section.body);
-      }
-    },
-    [section.body]
-  );
-
+function SectionsView({
+  sections,
+  registerRef,
+}: {
+  sections: Section[];
+  registerRef: (el: HTMLElement | null, i: number) => void;
+}) {
   return (
-    <div>
-      {section.title && (
-        <h2 className="text-xl font-semibold text-slate-800 border-b border-slate-200 pb-2 mb-4">
-          {section.title}
-        </h2>
-      )}
-      <div ref={ref} className="tiptap-editor prose max-w-none" />
+    <div className="space-y-6">
+      {sections.map((s, i) => (
+        <section
+          key={s.id}
+          id={s.id}
+          ref={(el) => registerRef(el, i)}
+          className="scroll-mt-20"
+        >
+          {s.title && (
+            <h2 className="mb-3 border-b border-border pb-2 text-xl font-semibold text-foreground">
+              {s.title}
+            </h2>
+          )}
+          <div
+            className="tiptap-editor prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: markdownToHtml(s.body) }}
+          />
+        </section>
+      ))}
     </div>
   );
 }
 
-function parseSections(content: string): { title: string; body: string }[] {
+function RevisionsView({
+  jobId,
+  chapterNum,
+  revisions,
+  onRestored,
+}: {
+  jobId: string;
+  chapterNum: number;
+  revisions: ChapterRevisionSummary[];
+  attempts: HumanizerAttemptSummary[];
+  onRestored: () => void;
+}) {
+  const [selectedA, setSelectedA] = useState<number | null>(null);
+  const [selectedB, setSelectedB] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (revisions.length >= 2) {
+      setSelectedA(revisions[1].id);
+      setSelectedB(revisions[0].id);
+    } else if (revisions.length === 1) {
+      setSelectedA(revisions[0].id);
+      setSelectedB(null);
+    }
+  }, [revisions]);
+
+  const handleRestore = async (revisionId: number) => {
+    try {
+      const rev = await api.chapters.revision(jobId, chapterNum, revisionId);
+      await api.chapters.update(jobId, chapterNum, {
+        content: rev.content,
+        source: "tiptap",
+        summary: `Restored from revision ${revisionId}`,
+      });
+      toast.success("Revision restored");
+      onRestored();
+    } catch (e) {
+      toast.error("Restore failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  if (revisions.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <Empty
+            icon={<History className="h-5 w-5" />}
+            title="No revisions yet"
+            description="Revisions are created automatically when this chapter is generated or edited."
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <GitCompare className="h-4 w-4" />
+            Compare revisions
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 pt-0">
+          <RevisionPicker
+            label="Revision A"
+            value={selectedA}
+            revisions={revisions}
+            onChange={setSelectedA}
+            exclude={selectedB}
+          />
+          <RevisionPicker
+            label="Revision B (newer)"
+            value={selectedB}
+            revisions={revisions}
+            onChange={setSelectedB}
+            exclude={selectedA}
+          />
+        </CardContent>
+      </Card>
+
+      {selectedA && selectedB && selectedA !== selectedB && (
+        <DiffView
+          jobId={jobId}
+          chapterNum={chapterNum}
+          revisionA={selectedA}
+          revisionB={selectedB}
+        />
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">All revisions</CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y divide-border pt-0">
+          {revisions.map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {r.source}
+                  </span>
+                  {r.summary && (
+                    <span className="truncate text-sm text-foreground">
+                      {r.summary}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-2xs text-muted-foreground">
+                  {new Date(r.created_at).toLocaleString()} ·{" "}
+                  {r.word_count.toLocaleString()} words
+                  {r.ai_score !== null && ` · AI: ${r.ai_score.toFixed(1)}`}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRestore(r.id)}
+                >
+                  Restore
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RevisionPicker({
+  label,
+  value,
+  revisions,
+  onChange,
+  exclude,
+}: {
+  label: string;
+  value: number | null;
+  revisions: ChapterRevisionSummary[];
+  onChange: (id: number) => void;
+  exclude: number | null;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </label>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/40"
+      >
+        <option value="">Select…</option>
+        {revisions
+          .filter((r) => r.id !== exclude)
+          .map((r) => (
+            <option key={r.id} value={r.id}>
+              #{r.id} · {new Date(r.created_at).toLocaleString()} · {r.source}
+            </option>
+          ))}
+      </select>
+    </div>
+  );
+}
+
+function DiffView({
+  jobId,
+  chapterNum,
+  revisionA,
+  revisionB,
+}: {
+  jobId: string;
+  chapterNum: number;
+  revisionA: number;
+  revisionB: number;
+}) {
+  const [contentA, setContentA] = useState<string | null>(null);
+  const [contentB, setContentB] = useState<string | null>(null);
+
+  useEffect(() => {
+    setContentA(null);
+    setContentB(null);
+    Promise.all([
+      api.chapters.revision(jobId, chapterNum, revisionA),
+      api.chapters.revision(jobId, chapterNum, revisionB),
+    ]).then(([a, b]) => {
+      setContentA(a.content);
+      setContentB(b.content);
+    });
+  }, [jobId, chapterNum, revisionA, revisionB]);
+
+  if (!contentA || !contentB) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <Skeleton className="h-32" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const tokensA = tokenize(contentA);
+  const tokensB = tokenize(contentB);
+  const diff = computeDiff(tokensA, tokensB);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Diff</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <pre className="whitespace-pre-wrap rounded-md border border-border bg-background p-4 font-mono text-2xs leading-relaxed">
+          {diff.map((d, i) => (
+            <span
+              key={i}
+              className={cn(
+                d.type === "added" && "bg-success-soft text-success",
+                d.type === "removed" && "bg-danger-soft text-danger line-through"
+              )}
+            >
+              {d.value}
+            </span>
+          ))}
+        </pre>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface DiffToken {
+  type: "same" | "added" | "removed";
+  value: string;
+}
+
+function tokenize(text: string): string[] {
+  return text.split(/(\s+)/);
+}
+
+function computeDiff(a: string[], b: string[]): DiffToken[] {
+  const m = a.length;
+  const n = b.length;
+  const lcs: number[][] = Array.from({ length: m + 1 }, () =>
+    new Array(n + 1).fill(0)
+  );
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      if (a[i] === b[j]) {
+        lcs[i][j] = lcs[i + 1][j + 1] + 1;
+      } else {
+        lcs[i][j] = Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      }
+    }
+  }
+  const out: DiffToken[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) {
+      out.push({ type: "same", value: a[i] });
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      out.push({ type: "removed", value: a[i] });
+      i++;
+    } else {
+      out.push({ type: "added", value: b[j] });
+      j++;
+    }
+  }
+  while (i < m) {
+    out.push({ type: "removed", value: a[i++] });
+  }
+  while (j < n) {
+    out.push({ type: "added", value: b[j++] });
+  }
+  return out;
+}
+
+function parseSections(content: string): Section[] {
   const lines = content.split("\n");
-  const sections: { title: string; body: string }[] = [];
-  let current = { title: "", body: "" };
+  const sections: Section[] = [];
+  let current: Section = { title: "", body: "", id: "" };
+  let counter = 0;
+
+  function slugify(s: string): string {
+    return `section-${counter++}-${s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40)}`;
+  }
+
+  function pushCurrent() {
+    if (current.title || current.body.trim()) {
+      current.id = current.title ? slugify(current.title) : `section-${counter++}`;
+      sections.push(current);
+    }
+  }
 
   for (const line of lines) {
     if (line.startsWith("### ")) {
       current.body += line + "\n";
     } else if (line.startsWith("## ")) {
-      if (current.title || current.body.trim()) {
-        sections.push(current);
-      }
-      current = { title: line.replace(/^##\s*/, ""), body: "" };
+      pushCurrent();
+      current = { title: line.replace(/^##\s*/, ""), body: "", id: "" };
     } else if (line.startsWith("# ") && !line.startsWith("## ")) {
-      if (current.title || current.body.trim()) {
-        sections.push(current);
-      }
-      current = { title: line.replace(/^#\s*/, ""), body: "" };
+      pushCurrent();
+      current = { title: line.replace(/^#\s*/, ""), body: "", id: "" };
     } else {
       current.body += line + "\n";
     }
   }
-
-  if (current.title || current.body.trim()) {
-    sections.push(current);
-  }
-
+  pushCurrent();
   return sections;
 }
 
-function sanitizeUrl(url: string): string {
-  const trimmed = url.trim();
-  if (/^(https?|mailto):/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("//")) return trimmed;
-  return "#";
-}
-
-function renderMarkdown(md: string): string {
-  let html = md
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, "<code>$1</code>")
-    .replace(
-      /\[(.+?)\]\((.+?)\)/g,
-      (_, text, url) => `<a href="${sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`
-    )
-    .replace(/^- (.+)$/gm, "<li class='ul-item'>$1</li>")
-    .replace(/^(\d+)\. (.+)$/gm, "<li class='ol-item'>$2</li>")
-    .replace(/(<li class='ul-item'>[\s\S]*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
-    .replace(/(<li class='ol-item'>[\s\S]*?<\/li>\n?)+/g, (match) => `<ol>${match}</ol>`)
-    .replace(/ class='ul-item'/g, "")
-    .replace(/ class='ol-item'/g, "")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br>");
-
-  html = "<p>" + html + "</p>";
-  html = html
-    .replace(/<p><\/p>/g, "")
-    .replace(/<p>(<h[123]>)/g, "$1")
-    .replace(/<\/h([123])><\/p>/g, "</h$1>")
-    .replace(/<p>(<ul>)/g, "$1")
-    .replace(/(<\/ul>)<\/p>/g, "$1");
-
-  return html;
-}
+// htmlToMarkdown is provided by TipTapEditor but reserved for future use.
+void htmlToMarkdown;

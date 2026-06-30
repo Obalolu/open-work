@@ -23,6 +23,7 @@ dependencies = [
     "requests>=2.31.0",
     "tenacity>=8.2.0",
     "arxiv>=2.0.0",
+    "sse-starlette>=2.0.0",
 ]
 
 [project.optional-dependencies]
