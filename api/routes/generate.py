@@ -84,15 +84,32 @@ def get_generation_status(job_id: str, db: Session = Depends(get_db)):
         .all()
     )
 
-    chapter_status = [
-        ChapterGenStatus(
-            number=ch.chapter_number,
-            name=ch.name,
-            status=ch.status,
-            progress=100 if ch.status == "complete" else (active.progress if active.chapter_number == ch.chapter_number else 0),
+    import json as _json
+    try:
+        run_statuses: dict = _json.loads(active.chapter_status_json or "{}")
+    except _json.JSONDecodeError:
+        run_statuses = {}
+
+    chapter_status = []
+    for ch in chapters:
+        ch_status = run_statuses.get(str(ch.chapter_number), {})
+        if ch.status == "complete":
+            progress = 100
+            status_text = "complete"
+        elif active.chapter_number == ch.chapter_number:
+            progress = ch_status.get("progress", active.progress)
+            status_text = ch_status.get("status", active.phase)
+        else:
+            progress = 0
+            status_text = ch.status or "pending"
+        chapter_status.append(
+            ChapterGenStatus(
+                number=ch.chapter_number,
+                name=ch.name,
+                status=status_text,
+                progress=progress,
+            )
         )
-        for ch in chapters
-    ]
 
     return GenerationStatus(
         run_id=active.id,

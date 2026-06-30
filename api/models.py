@@ -64,6 +64,7 @@ class GenerationRun(Base):
     progress = Column(Integer, default=0)
     message = Column(String, default="")
     error = Column(Text, nullable=True)
+    chapter_status_json = Column(Text, default="{}")
     started_at = Column(DateTime, default=_utcnow)
     completed_at = Column(DateTime, nullable=True)
 

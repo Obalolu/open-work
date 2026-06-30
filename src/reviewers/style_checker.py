@@ -63,6 +63,10 @@ async def review_style(
                 severity="high",
             ))
 
+    # Check required elements
+    required_issues = _check_required_elements(chapter_text, chapter_config)
+    issues.extend(required_issues)
+
     # Check AI phrases
     ai_phrases = count_ai_phrases(chapter_text)
     for phrase in ai_phrases:
@@ -125,6 +129,69 @@ async def review_style(
     )
 
 
+def _check_required_elements(text: str, chapter_config: dict[str, Any]) -> list[StyleIssue]:
+    """Check that required elements from the chapter config are present.
+
+    Applies concrete pattern checks where possible and leaves subjective
+    requirements to the LLM review.
+    """
+    issues: list[StyleIssue] = []
+    required = chapter_config.get("required", [])
+    if not required:
+        return issues
+
+    text_lower = text.lower()
+
+    for req in required:
+        req_lower = req.lower()
+
+        # Numbered list requirement
+        if "numbered list" in req_lower or "numbered format" in req_lower or "numbered items" in req_lower:
+            if not re.search(r"^\s*\d+\.", text, re.MULTILINE):
+                issues.append(StyleIssue(
+                    issue_type="missing_required_element",
+                    description=f"Required numbered list not found: \"{req}\"",
+                    severity="high",
+                ))
+
+        # No bullet list requirement
+        elif "no bullet" in req_lower or "no bullet points" in req_lower or ("prose only" in req_lower and "bullet" in req_lower):
+            if re.search(r"^\s*[-*+]\s+", text, re.MULTILINE):
+                issues.append(StyleIssue(
+                    issue_type="missing_required_element",
+                    description=f"Bullet list found where prose only is required: \"{req}\"",
+                    severity="high",
+                ))
+
+        # No table requirement
+        elif "no table" in req_lower:
+            if "|" in text and "\n---" in text:
+                issues.append(StyleIssue(
+                    issue_type="missing_required_element",
+                    description=f"Table found where tables are forbidden: \"{req}\"",
+                    severity="high",
+                ))
+
+        # Active voice percentage
+        elif "active voice" in req_lower:
+            match = re.search(r"(\d+)%?\s*active voice", req_lower)
+            target = int(match.group(1)) if match else 60
+            # Quick estimate: count sentences with clear active markers vs passive
+            sentences = [s.strip() for s in re.split(r"[.!?\n]+", text) if s.strip()]
+            if sentences:
+                passive_markers = ["was ", "were ", "is ", "are ", "been ", "being ", "by the"]
+                passive_count = sum(1 for s in sentences if any(m in s.lower() for m in passive_markers))
+                active_pct = int(((len(sentences) - passive_count) / len(sentences)) * 100)
+                if active_pct < target:
+                    issues.append(StyleIssue(
+                        issue_type="missing_required_element",
+                        description=f"Active voice below required {target}% (estimated {active_pct}%): \"{req}\"",
+                        severity="medium",
+                    ))
+
+    return issues
+
+
 async def _llm_style_review(
     text: str,
     chapter_config: dict[str, Any],
@@ -133,11 +200,16 @@ async def _llm_style_review(
     """Use LLM for deeper style analysis."""
     tone = style_config.get("tone", "professional")
     formality = style_config.get("formality", 0.7)
+    required = chapter_config.get("required", [])
+    required_text = "\n".join(f"  - {r}" for r in required) if required else "  (none specified)"
 
-    prompt = f"""Review this academic text for style issues.
+    prompt = f"""Review this academic text for style issues and required-element compliance.
 
 Target tone: {tone}
 Target formality: {formality} (0=casual, 1=fully formal)
+
+Required elements the text MUST satisfy:
+{required_text}
 
 Text:
 ---
@@ -151,6 +223,7 @@ Check for:
 4. Overconfident claims without evidence
 5. Repetitive sentence openings
 6. Weak or vague transitions
+7. Missing or poorly satisfied required elements (e.g. rhetorical question, variable definitions, operational definitions, citations)
 
 Return JSON:
 {{

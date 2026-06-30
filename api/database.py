@@ -38,5 +38,19 @@ def get_db():
         db.close()
 
 
+def _add_column_if_missing(table: str, column: str, definition: str) -> None:
+    """Add a column to a SQLite table if it does not already exist."""
+    with engine.connect() as conn:
+        result = conn.execute(
+            f"PRAGMA table_info({table})"  # noqa: S608
+        )
+        columns = {row[1] for row in result}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")  # noqa: S608
+            conn.commit()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # Lightweight migrations for columns added after initial deploy.
+    _add_column_if_missing("generation_runs", "chapter_status_json", "TEXT DEFAULT '{}'")
