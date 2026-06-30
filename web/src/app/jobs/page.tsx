@@ -7,6 +7,7 @@ import { useStore } from "@/stores/jobStore";
 import type { Job } from "@/lib/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import {
@@ -156,10 +157,12 @@ export default function JobsPage() {
     toast.success("Job deleted");
   };
 
+  const debouncedSearch = useDebouncedValue(search, 200);
+
   const filtered = useMemo(() => {
     let list = jobs;
-    if (search) {
-      const s = search.toLowerCase();
+    if (debouncedSearch) {
+      const s = debouncedSearch.toLowerCase();
       list = list.filter((j) => j.topic.toLowerCase().includes(s));
     }
     if (statusFilter !== "all") {
@@ -180,7 +183,7 @@ export default function JobsPage() {
       }
     });
     return list;
-  }, [jobs, search, statusFilter, sort]);
+  }, [jobs, debouncedSearch, statusFilter, sort]);
 
   return (
     <div className="space-y-6">

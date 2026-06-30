@@ -18,7 +18,7 @@ import type {
   HumanizerAttemptSummary,
   Source,
 } from "@/lib/types";
-import { TipTapEditor, htmlToMarkdown } from "@/components/editor/TipTapEditor";
+import { TipTapEditor } from "@/components/editor/TipTapEditor";
 import { markdownToHtml } from "@/components/editor/markdownToHtml";
 import {
   ArrowLeft,
@@ -32,6 +32,7 @@ import {
   GitCompare,
   Sparkles,
   Check,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -54,6 +55,7 @@ export default function EditorPage() {
   const [activeTab, setActiveTab] = useState<"content" | "sources" | "revisions">(
     "content"
   );
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceSearch, setSourceSearch] = useState("");
@@ -185,6 +187,16 @@ export default function EditorPage() {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          {chapter.content && !editing && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil />
+              Edit
+            </Button>
+          )}
           {(["md", "docx", "pdf"] as const).map((fmt) => (
             <Button key={fmt} variant="outline" size="sm" asChild>
               <a href={api.export.url(jobId, chapterNum, fmt)} download>
@@ -212,7 +224,20 @@ export default function EditorPage() {
               <Card>
                 <CardContent className="p-6 md:p-8">
                   {chapter.content ? (
-                    sections.length > 0 ? (
+                    editing ? (
+                      <TipTapEditor
+                        key={chapter.id}
+                        initialContent={initialHtml}
+                        placeholder="Start writing your chapter…"
+                        editable
+                        onSave={async (md) => {
+                          await handleSave(md);
+                          setEditing(false);
+                        }}
+                        onCancel={() => setEditing(false)}
+                        autosaveMs={1500}
+                      />
+                    ) : sections.length > 0 ? (
                       <SectionsView
                         sections={sections}
                         registerRef={(el, i) => {
@@ -234,17 +259,6 @@ export default function EditorPage() {
                   )}
                 </CardContent>
               </Card>
-
-              {chapter.content && (
-                <div className="mt-4">
-                  <TipTapEditor
-                    initialContent={initialHtml}
-                    placeholder="Start writing your chapter…"
-                    onSave={handleSave}
-                    autosaveMs={1500}
-                  />
-                </div>
-              )}
             </TabsContent>
 
             <TabsContent value="sources" className="mt-0">
@@ -789,6 +803,3 @@ function parseSections(content: string): Section[] {
   pushCurrent();
   return sections;
 }
-
-// htmlToMarkdown is provided by TipTapEditor but reserved for future use.
-void htmlToMarkdown;

@@ -53,11 +53,15 @@ export function GenerationStream({
   const [chapterStatuses, setChapterStatuses] = React.useState<
     Record<number, { status: string; progress: number; message: string }>
   >({});
+  const [preview, setPreview] = React.useState("");
+  const [previewChapter, setPreviewChapter] = React.useState<number | null>(null);
+  const [previewPhase, setPreviewPhase] = React.useState<string | null>(null);
   const [finished, setFinished] = React.useState(
     initialPhase === "complete" || initialPhase === "error"
   );
   const [error, setError] = React.useState<string | null>(null);
   const [cancelling, setCancelling] = React.useState(false);
+  const previewRef = React.useRef<HTMLDivElement | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const completedRef = React.useRef(false);
 
@@ -87,6 +91,29 @@ export function GenerationStream({
                 message: (event.message as string) ?? "",
               },
             }));
+            // When a chapter leaves the streaming phase, freeze its preview
+            if (
+              previewChapter === num &&
+              (event.status as string) &&
+              !["writing", "humanize"].includes(event.status as string)
+            ) {
+              // keep the buffer; user can read what was written
+            }
+            if ((event.status as string) === "pending" || (event.status as string) === "queued") {
+              // new chapter starting; clear previous buffer
+              if (previewChapter !== num) {
+                setPreview("");
+                setPreviewChapter(num);
+                setPreviewPhase(null);
+              }
+            }
+          } else if (type === "chunk") {
+            const text = (event.text as string) ?? "";
+            const num = event.chapter as number;
+            const ph = (event.phase as string) ?? null;
+            setPreviewChapter(num);
+            setPreviewPhase(ph);
+            setPreview((p) => (p + text).slice(-20000));
           } else if (type === "complete") {
             setPhase("complete");
             setProgress(100);
@@ -118,6 +145,13 @@ export function GenerationStream({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
+
+  // Auto-scroll the live preview to the bottom as text streams in
+  React.useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [preview]);
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -230,6 +264,25 @@ export function GenerationStream({
               </li>
             ))}
           </ul>
+        )}
+
+        {preview && previewChapter !== null && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-2xs text-muted-foreground">
+              <span>
+                Live preview · Chapter {previewChapter}
+                {previewPhase && ` · ${previewPhase}`}
+              </span>
+              <span>{preview.length.toLocaleString()} chars</span>
+            </div>
+            <div
+              ref={previewRef}
+              className="max-h-48 overflow-auto rounded-md border border-border bg-background p-3 font-mono text-2xs leading-relaxed text-foreground"
+            >
+              <pre className="whitespace-pre-wrap">{preview}</pre>
+              <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-primary align-middle" />
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -21,14 +21,14 @@ from api.database import SessionLocal
 from api.models import Chapter, ChapterContentRevision, GenerationRun, HumanizerAttempt, Job
 from src.config import get_output_dir, load_yaml
 from src.export.exporter import export_chapter
-from src.humanizer.pipeline import run_humanize_pipeline
+from src.humanizer.pipeline import stream_humanize_text
 from src.research.orchestrator import CitationResearcher
 from src.research.summarizer import summarize_papers
 from src.reviewers.ai_detector import detect_ai_text
 from src.reviewers.fact_checker import fact_check
 from src.reviewers.style_checker import review_style
 from src.router.prompt_loader import load_base_prompt, load_chapter_template, load_style_template
-from src.writers.chapter_writer import write_chapter
+from src.writers.chapter_writer import stream_write_chapter
 from src.writers.citation_compiler import (
     compile_citations,
     format_reference_list,
@@ -48,6 +48,26 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def _consume_stream(
+    agen: Any, *, on_chunk: Any | None = None
+) -> str:
+    """Drain an async generator, optionally invoking on_chunk(str) for each piece.
+
+    Returns the concatenated string. Runs the generator on a private event
+    loop so it is safe to call from the background pipeline thread.
+    """
+    pieces: list[str] = []
+
+    async def _drain() -> str:
+        async for chunk in agen:
+            pieces.append(chunk)
+            if on_chunk is not None:
+                on_chunk(chunk)
+        return "".join(pieces)
+
+    return _run_async(_drain())
 
 
 def _phase_progress(
@@ -348,7 +368,7 @@ def _run_pipeline(
             db.commit()
             research = _run_async(summarize_papers(all_papers, section_instructions or None))
 
-            # Phase 2: Writing
+            # Phase 2: Writing (streamed)
             _update_run(
                 db,
                 run_id,
@@ -368,15 +388,23 @@ def _run_pipeline(
                     "message": f"Writing Chapter {ch_num}...",
                 },
             )
-            chapter_text = _run_async(
-                write_chapter(
+
+            def _on_write_chunk(chunk: str, *, _ch: int = ch_num) -> None:
+                _publish_event(
+                    run_id,
+                    {"type": "chunk", "chapter": _ch, "phase": "writing", "text": chunk},
+                )
+
+            chapter_text = _consume_stream(
+                stream_write_chapter(
                     base_prompt=base_prompt,
                     chapter_config=ch_config,
                     style_config=style_config,
                     research=research,
                     job_config=job_config,
                     previous_chapters=all_chapter_texts if all_chapter_texts else None,
-                )
+                ),
+                on_chunk=_on_write_chunk,
             )
 
             # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
@@ -409,7 +437,7 @@ def _run_pipeline(
             else:
                 pre_score = 75
 
-            # Phase 5: Humanize
+            # Phase 5: Humanize (streamed)
             if not skip_humanize:
                 _update_run(
                     db,
@@ -431,10 +459,12 @@ def _run_pipeline(
                     },
                 )
 
-                def _record_attempt(original, rewritten, intensity, before, after):
+                def _record_attempt(
+                    original, rewritten, intensity, before, after, *, _ch: int = ch_num
+                ):
                     ch_db = (
                         db.query(Chapter)
-                        .filter(Chapter.job_id == job_id, Chapter.chapter_number == ch_num)
+                        .filter(Chapter.job_id == job_id, Chapter.chapter_number == _ch)
                         .first()
                     )
                     if not ch_db:
@@ -451,14 +481,26 @@ def _run_pipeline(
                     db.add(attempt)
                     db.commit()
 
-                humanize_result = _run_async(
-                    run_humanize_pipeline(
+                def _on_humanize_chunk(chunk: str, *, _ch: int = ch_num) -> None:
+                    _publish_event(
+                        run_id,
+                        {
+                            "type": "chunk",
+                            "chapter": _ch,
+                            "phase": "humanize",
+                            "text": chunk,
+                        },
+                    )
+
+                rewritten = _consume_stream(
+                    stream_humanize_text(
                         chapter_text,
                         intensity="medium",
-                        on_attempt=_record_attempt,
-                    )
+                    ),
+                    on_chunk=_on_humanize_chunk,
                 )
-                chapter_text = humanize_result.final_text
+                _record_attempt(chapter_text, rewritten, "medium", None, None)
+                chapter_text = rewritten
 
                 if not skip_review:
                     _update_run(
@@ -495,14 +537,15 @@ def _run_pipeline(
                     _set_chapter_status(
                         db, run_id, ch_num, "humanize", 90, "Re-humanizing high-AI sections"
                     )
-                    humanize_result = _run_async(
-                        run_humanize_pipeline(
+                    rewritten = _consume_stream(
+                        stream_humanize_text(
                             chapter_text,
                             intensity="aggressive",
-                            on_attempt=_record_attempt,
-                        )
+                        ),
+                        on_chunk=_on_humanize_chunk,
                     )
-                    chapter_text = humanize_result.final_text
+                    _record_attempt(chapter_text, rewritten, "aggressive", None, None)
+                    chapter_text = rewritten
                     detection = detect_ai_text(chapter_text)
             else:
                 post_score = pre_score

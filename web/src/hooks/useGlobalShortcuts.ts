@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useKeyShortcut } from "@/hooks/useKeyShortcut";
 
 /**
@@ -15,7 +16,7 @@ import { useKeyShortcut } from "@/hooks/useKeyShortcut";
  * G then R – go to research
  * G then P – go to proxy
  * G then A – go to activity
- * T        – cycle theme (handled by ThemeToggle)
+ * T        – cycle theme
  * ?        – open shortcut help
  */
 export function useGlobalShortcuts({
@@ -24,6 +25,7 @@ export function useGlobalShortcuts({
   onShowHelp: () => void;
 }) {
   const router = useRouter();
+  const { setTheme, theme } = useTheme();
 
   useKeyShortcut("/", () => {
     const target = document.querySelector<HTMLInputElement>(
@@ -34,6 +36,14 @@ export function useGlobalShortcuts({
   });
 
   useKeyShortcut("?", () => onShowHelp());
+
+  useKeyShortcut("t", () => {
+    const order = ["light", "dark", "system"] as const;
+    const current = (theme ?? "system") as (typeof order)[number];
+    const idx = order.indexOf(current);
+    const next = order[(idx + 1) % order.length];
+    setTheme(next);
+  });
 
   // "G then X" sequence
   useEffect(() => {

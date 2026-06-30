@@ -111,21 +111,6 @@ export function CommandPalette() {
                       onSelect={() => runCommand(() => router.push("/config"))}
                     />
                     <PaletteItem
-                      icon={<Settings className="h-4 w-4" />}
-                      label="Go to Research"
-                      onSelect={() => runCommand(() => router.push("/research"))}
-                    />
-                    <PaletteItem
-                      icon={<Settings className="h-4 w-4" />}
-                      label="Go to Proxy"
-                      onSelect={() => runCommand(() => router.push("/proxy"))}
-                    />
-                    <PaletteItem
-                      icon={<Settings className="h-4 w-4" />}
-                      label="Go to Settings"
-                      onSelect={() => runCommand(() => router.push("/config"))}
-                    />
-                    <PaletteItem
                       icon={<Quote className="h-4 w-4" />}
                       label="Go to Research"
                       onSelect={() => runCommand(() => router.push("/research"))}

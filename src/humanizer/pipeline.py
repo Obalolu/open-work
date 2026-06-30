@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 from src.humanizer.rewriter import humanize_text, polish_text, stream_humanize_text
 
@@ -26,23 +26,9 @@ async def run_humanize_pipeline(
     max_retries: int = 2,
     on_attempt: Optional[Any] = None,
 ) -> HumanizeResult:
-    """Run the full humanization pipeline.
+    """Run the full humanization pipeline (non-streaming).
 
-    Pipeline:
-    1. LLM style diversification (entropy rewrite)
-    2. Optional: final polish pass
-    3. Optional: second entropy pass if still flagged
-
-    Args:
-        text: Input text to humanize.
-        intensity: "light", "medium", or "aggressive".
-        include_polish: Whether to include a final polish pass.
-        max_retries: Maximum number of humanize + check loops.
-        on_attempt: Optional callback invoked after each attempt; receives
-            (original, rewritten, intensity, ai_score_before, ai_score_after).
-
-    Returns:
-        HumanizeResult with final text and step history.
+    Returns a HumanizeResult with the final text and step history.
     """
     steps: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
@@ -77,7 +63,7 @@ async def run_humanize_pipeline(
 async def stream_humanize(
     text: str,
     intensity: str = "medium",
-):
+) -> AsyncIterator[str]:
     """Stream the humanization rewrite, yielding chunks of the rewritten text."""
     async for chunk in stream_humanize_text(text, intensity=intensity):
         yield chunk
