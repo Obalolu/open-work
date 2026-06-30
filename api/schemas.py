@@ -92,6 +92,37 @@ class ChapterDetail(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChapterUpdate(BaseModel):
+    content: str = Field(..., description="New chapter content (markdown or HTML)")
+    source: str = Field(default="tiptap", description="Source: tiptap | import")
+    summary: Optional[str] = None
+
+
+class ChapterRevisionSummary(BaseModel):
+    id: int
+    source: str
+    summary: str = ""
+    word_count: int
+    ai_score: Optional[float] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChapterRevisionDetail(ChapterRevisionSummary):
+    content: str
+
+
+class HumanizerAttemptSummary(BaseModel):
+    id: int
+    intensity: str
+    ai_score_before: Optional[float] = None
+    ai_score_after: Optional[float] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Generation ───────────────────────────────────────
 class GenerateRequest(BaseModel):
     chapters: list[int] = Field(default_factory=list, description="Chapter numbers to generate")
@@ -167,3 +198,12 @@ class DashboardStats(BaseModel):
     total_words: int
     avg_ai_score: Optional[float] = None
     jobs_by_status: dict[str, int] = Field(default_factory=dict)
+
+
+# ── Health ───────────────────────────────────────────
+class HealthResponse(BaseModel):
+    status: str
+    db_ok: bool
+    llm_configured: bool
+    active_runs: int
+    timestamp: datetime

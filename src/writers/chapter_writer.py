@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, AsyncIterator
 
 from src.router.prompt_merger import build_system_prompt
 from src.research.summarizer import ResearchSummary, format_citations_for_prompt
-from src.utils.llm_client import call_llm
+from src.utils.llm_client import call_llm, stream_llm
 
 
 async def write_chapter(
@@ -25,29 +25,11 @@ async def write_chapter(
     chapter_name = chapter_config.get("name", "Chapter")
     sections = chapter_config.get("sections", [])
 
-    # Build system prompt from all layers
     system_prompt = build_system_prompt(base_prompt, chapter_config, style_config, job_config)
-
-    # Format citations for the LLM
     citations_ref = format_citations_for_prompt(research)
+    section_summaries = _build_section_summaries(research)
+    prev_context = _build_previous_chapters_context(previous_chapters)
 
-    # Build research context
-    section_summaries = ""
-    if research.summaries:
-        section_summaries = "\n\n".join(
-            f"### Section {sid} research:\n{summary}"
-            for sid, summary in research.summaries.items()
-        )
-
-    # Previous chapters context
-    prev_context = ""
-    if previous_chapters:
-        prev_context = "\n\n=== PREVIOUS CHAPTERS (for context and continuity) ===\n"
-        for i, ch in enumerate(previous_chapters, 1):
-            prev_context += f"\n--- Chapter {i} (first 500 words) ---\n"
-            prev_context += ch[:500] + "...\n"
-
-    # Generate each section
     all_sections: list[str] = []
     for i, section in enumerate(sections):
         section_text = await _write_section(
@@ -64,39 +46,98 @@ async def write_chapter(
         )
         all_sections.append(section_text)
 
-    # Combine all sections
-    chapter = "\n\n".join(all_sections)
-    return chapter
+    return "\n\n".join(all_sections)
 
 
-async def _write_section(
+async def stream_write_chapter(
+    base_prompt: str,
+    chapter_config: dict[str, Any],
+    style_config: dict[str, Any],
+    research: ResearchSummary,
+    job_config: dict[str, Any],
+    previous_chapters: list[str] | None = None,
+    on_section_start: Any | None = None,
+    on_section_done: Any | None = None,
+) -> AsyncIterator[str]:
+    """Stream a chapter being written, yielding text chunks as they arrive.
+
+    Yields the section heading first, then LLM chunks for each section, then a
+    blank line between sections. The caller is expected to assemble the final
+    text from the chunks.
+    """
+    chapter_name = chapter_config.get("name", "Chapter")
+    sections = chapter_config.get("sections", [])
+
+    system_prompt = build_system_prompt(base_prompt, chapter_config, style_config, job_config)
+    citations_ref = format_citations_for_prompt(research)
+    section_summaries = _build_section_summaries(research)
+    prev_context = _build_previous_chapters_context(previous_chapters)
+
+    for i, section in enumerate(sections):
+        if on_section_start:
+            on_section_start(i + 1, len(sections), section)
+        prompt = _build_section_prompt(
+            section_config=section,
+            chapter_name=chapter_name,
+            citations_ref=citations_ref,
+            section_summaries=section_summaries,
+            prev_context=prev_context,
+            section_index=i + 1,
+            total_sections=len(sections),
+        )
+        async for chunk in stream_llm(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=style_config.get("temperature", 0.7),
+        ):
+            yield chunk
+        if on_section_done:
+            on_section_done(i + 1, len(sections))
+        if i < len(sections) - 1:
+            yield "\n\n"
+
+
+def _build_section_summaries(research: ResearchSummary) -> str:
+    if not research.summaries:
+        return ""
+    return "\n\n".join(
+        f"### Section {sid} research:\n{summary}"
+        for sid, summary in research.summaries.items()
+    )
+
+
+def _build_previous_chapters_context(previous_chapters: list[str] | None) -> str:
+    if not previous_chapters:
+        return ""
+    context = "\n\n=== PREVIOUS CHAPTERS (for context and continuity) ===\n"
+    for i, ch in enumerate(previous_chapters, 1):
+        context += f"\n--- Chapter {i} (first 500 words) ---\n"
+        context += ch[:500] + "...\n"
+    return context
+
+
+def _build_section_prompt(
+    *,
     section_config: dict[str, Any],
     chapter_name: str,
-    system_prompt: str,
     citations_ref: str,
     section_summaries: str,
     prev_context: str,
-    style_config: dict[str, Any],
-    job_config: dict[str, Any],
     section_index: int,
     total_sections: int,
 ) -> str:
-    """Write a single section with format-specific instructions."""
     sid = section_config.get("id", f"1.{section_index}")
     title = section_config.get("title", "Section")
     paras = section_config.get("paragraphs", 2)
     wc = section_config.get("word_count", 300)
     fmt = section_config.get("format", "prose")
     instructions = section_config.get("instructions", "")
-
     forbidden = section_config.get("forbidden", [])
     forbidden_text = ", ".join(f'"{p}"' for p in forbidden) if forbidden else "none"
 
-    # Build format-specific instructions
     format_instructions = _get_format_instructions(fmt, paras, wc)
 
-    # Build section-specific prompt
-    prompt = f"""Write section {sid}: {title}
+    return f"""Write section {sid}: {title}
 This is section {section_index} of {total_sections} in Chapter: {chapter_name}.
 
 {format_instructions}
@@ -125,6 +166,29 @@ Examples:
 
 Write the section now. Start directly with the section heading ({sid} {title})."""
 
+
+async def _write_section(
+    section_config: dict[str, Any],
+    chapter_name: str,
+    system_prompt: str,
+    citations_ref: str,
+    section_summaries: str,
+    prev_context: str,
+    style_config: dict[str, Any],
+    job_config: dict[str, Any],
+    section_index: int,
+    total_sections: int,
+) -> str:
+    """Write a single section with format-specific instructions."""
+    prompt = _build_section_prompt(
+        section_config=section_config,
+        chapter_name=chapter_name,
+        citations_ref=citations_ref,
+        section_summaries=section_summaries,
+        prev_context=prev_context,
+        section_index=section_index,
+        total_sections=total_sections,
+    )
     return await call_llm(
         prompt=prompt,
         system_prompt=system_prompt,

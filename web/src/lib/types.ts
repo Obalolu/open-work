@@ -95,3 +95,32 @@ export interface ProxyPoolStatus {
   failed: number;
   last_refresh: string | null;
 }
+
+export interface ChapterRevisionSummary {
+  id: number;
+  source: string;
+  summary: string;
+  word_count: number;
+  ai_score: number | null;
+  created_at: string;
+}
+
+export interface ChapterRevisionDetail extends ChapterRevisionSummary {
+  content: string;
+}
+
+export interface HumanizerAttemptSummary {
+  id: number;
+  intensity: string;
+  ai_score_before: number | null;
+  ai_score_after: number | null;
+  created_at: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  db_ok: boolean;
+  llm_configured: boolean;
+  active_runs: number;
+  timestamp: string;
+}

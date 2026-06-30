@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import queue
 import threading
 import time
 import traceback
@@ -17,17 +18,17 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from api.database import SessionLocal
-from api.models import Chapter, GenerationRun, Job
+from api.models import Chapter, ChapterContentRevision, GenerationRun, HumanizerAttempt, Job
 from src.config import get_output_dir, load_yaml
 from src.export.exporter import export_chapter
-from src.humanizer.pipeline import run_humanize_pipeline
+from src.humanizer.pipeline import stream_humanize_text
 from src.research.orchestrator import CitationResearcher
 from src.research.summarizer import summarize_papers
 from src.reviewers.ai_detector import detect_ai_text
 from src.reviewers.fact_checker import fact_check
 from src.reviewers.style_checker import review_style
 from src.router.prompt_loader import load_base_prompt, load_chapter_template, load_style_template
-from src.writers.chapter_writer import write_chapter
+from src.writers.chapter_writer import stream_write_chapter
 from src.writers.citation_compiler import (
     compile_citations,
     format_reference_list,
@@ -35,6 +36,8 @@ from src.writers.citation_compiler import (
 )
 
 _active_runs: dict[str, threading.Thread] = {}
+_active_run_cancels: dict[str, threading.Event] = {}
+_event_queues: dict[str, list[queue.Queue]] = {}
 _run_lock = threading.Lock()
 
 
@@ -47,11 +50,37 @@ def _run_async(coro):
         loop.close()
 
 
-def _phase_progress(chapter_index: int, total_chapters: int, phase_index: int, total_phases: int) -> int:
+def _consume_stream(
+    agen: Any, *, on_chunk: Any | None = None
+) -> str:
+    """Drain an async generator, optionally invoking on_chunk(str) for each piece.
+
+    Returns the concatenated string. Runs the generator on a private event
+    loop so it is safe to call from the background pipeline thread.
+    """
+    pieces: list[str] = []
+
+    async def _drain() -> str:
+        async for chunk in agen:
+            pieces.append(chunk)
+            if on_chunk is not None:
+                on_chunk(chunk)
+        return "".join(pieces)
+
+    return _run_async(_drain())
+
+
+def _phase_progress(
+    chapter_index: int, total_chapters: int, phase_index: int, total_phases: int
+) -> tuple[int, float, float]:
     """Compute overall progress (0-100) based on chapter and phase position."""
     chapter_share = 100 / max(total_chapters, 1)
     phase_share = chapter_share / max(total_phases, 1)
-    return int(chapter_index * chapter_share + phase_index * phase_share), chapter_share, phase_share
+    return (
+        int(chapter_index * chapter_share + phase_index * phase_share),
+        chapter_share,
+        phase_share,
+    )
 
 
 def start_generation(
@@ -73,9 +102,23 @@ def start_generation(
     db.add(run)
     db.commit()
 
+    cancel_event = threading.Event()
+    with _run_lock:
+        _active_runs[run.id] = None  # placeholder, set below
+        _active_run_cancels[run.id] = cancel_event
+
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(run.id, job_id, chapter_numbers, style_file, output_formats, skip_humanize, skip_review),
+        args=(
+            run.id,
+            job_id,
+            chapter_numbers,
+            style_file,
+            output_formats,
+            skip_humanize,
+            skip_review,
+            cancel_event,
+        ),
         daemon=True,
     )
     with _run_lock:
@@ -83,6 +126,22 @@ def start_generation(
     thread.start()
 
     return run.id
+
+
+def cancel_generation(db: Session, job_id: str) -> bool:
+    """Mark the active run for a job as cancelled. Returns True if a run was cancelled."""
+    run = get_active_run_for_job(db, job_id)
+    if not run:
+        return False
+    with _run_lock:
+        evt = _active_run_cancels.get(run.id)
+    if evt:
+        evt.set()
+    run.cancelled = 1
+    run.message = "Cancellation requested…"
+    run.phase = "cancelling"
+    db.commit()
+    return True
 
 
 def get_run_status(db: Session, run_id: str) -> GenerationRun | None:
@@ -99,6 +158,39 @@ def get_active_run_for_job(db: Session, job_id: str) -> GenerationRun | None:
     )
 
 
+def subscribe_to_run(run_id: str) -> queue.Queue:
+    """Subscribe to live events for a run. Returns a queue that receives dict events.
+
+    Caller must call `unsubscribe_from_run` to clean up.
+    """
+    q: queue.Queue = queue.Queue(maxsize=512)
+    with _run_lock:
+        _event_queues.setdefault(run_id, []).append(q)
+    return q
+
+
+def unsubscribe_from_run(run_id: str, q: queue.Queue) -> None:
+    with _run_lock:
+        if run_id in _event_queues:
+            try:
+                _event_queues[run_id].remove(q)
+                if not _event_queues[run_id]:
+                    del _event_queues[run_id]
+            except ValueError:
+                pass
+
+
+def _publish_event(run_id: str, event: dict[str, Any]) -> None:
+    with _run_lock:
+        qs = list(_event_queues.get(run_id, []))
+    for q in qs:
+        try:
+            q.put_nowait(event)
+        except queue.Full:
+            # Drop event for slow consumers
+            pass
+
+
 def _run_pipeline(
     run_id: str,
     job_id: str,
@@ -107,12 +199,14 @@ def _run_pipeline(
     output_formats: list[str],
     skip_humanize: bool,
     skip_review: bool,
+    cancel_event: threading.Event,
 ):
     db = SessionLocal()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
             _update_run(db, run_id, phase="error", message="Job not found", error="Job not found")
+            _publish_event(run_id, {"type": "error", "message": "Job not found"})
             return
 
         _update_run(db, run_id, phase="starting", message="Loading configs...")
@@ -140,6 +234,11 @@ def _run_pipeline(
         citation_style = job_config.get("citation_style", "apa")
 
         for idx, ch_num in enumerate(sorted(chapter_numbers)):
+            if cancel_event.is_set():
+                _update_run(db, run_id, phase="cancelled", progress=0, message="Generation cancelled")
+                _publish_event(run_id, {"type": "cancelled"})
+                return
+
             ch_index = ch_num - 1
             if ch_index >= len(chapter_configs):
                 continue
@@ -151,11 +250,10 @@ def _run_pipeline(
             def _progress(phase_index: int) -> int:
                 return _phase_progress(idx, total_chapters, phase_index, total_phases)[0]
 
-            _, chapter_share, phase_share = _phase_progress(idx, total_chapters, 0, total_phases)
-
             # Phase 1: Research
             _update_run(
-                db, run_id,
+                db,
+                run_id,
                 phase="research",
                 progress=_progress(0),
                 message=f"Researching Chapter {ch_num}: {ch_name}...",
@@ -163,6 +261,16 @@ def _run_pipeline(
             )
             _set_chapter_status(db, run_id, ch_num, "research", 0, f"Starting research for {ch_name}")
             db.commit()
+            _publish_event(
+                run_id,
+                {
+                    "type": "phase",
+                    "phase": "research",
+                    "chapter": ch_num,
+                    "progress": _progress(0),
+                    "message": f"Researching Chapter {ch_num}: {ch_name}...",
+                },
+            )
 
             topic = job_config.get("topic", "research topic")
             research_queries = _extract_research_queries(ch_config, topic)
@@ -170,15 +278,19 @@ def _run_pipeline(
             try:
                 with CitationResearcher() as researcher:
                     for q_idx, query in enumerate(research_queries[:3]):
+                        if cancel_event.is_set():
+                            _update_run(db, run_id, phase="cancelled", progress=0, message="Cancelled")
+                            _publish_event(run_id, {"type": "cancelled"})
+                            return
                         q_progress = int((q_idx / max(len(research_queries[:3]), 1)) * 100)
-                        _update_run(
-                            db, run_id,
-                            phase="research",
-                            progress=_progress(0) + int(q_progress * (phase_share / 100)),
-                            message=f"Researching Chapter {ch_num}: query {q_idx + 1}/{len(research_queries[:3])}...",
-                            chapter_number=ch_num,
+                        _set_chapter_status(
+                            db,
+                            run_id,
+                            ch_num,
+                            "research",
+                            q_progress,
+                            f"Query {q_idx + 1}/{len(research_queries[:3])}",
                         )
-                        _set_chapter_status(db, run_id, ch_num, "research", q_progress, f"Query {q_idx + 1}/{len(research_queries[:3])}")
                         db.commit()
                         try:
                             citations = researcher.research(query)
@@ -198,10 +310,13 @@ def _run_pipeline(
                                 }
                                 key = paper.get("doi") or paper.get("url") or paper.get("title", "")
                                 if key and key not in {
-                                    p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers
+                                    p.get("doi") or p.get("url") or p.get("title", "")
+                                    for p in all_papers
                                 }:
                                     all_papers.append(paper)
-                            logger.info(f"Research query '{query[:60]}...' returned {len(citations)} papers, total unique: {len(all_papers)}")
+                            logger.info(
+                                f"Research query '{query[:60]}...' returned {len(citations)} papers, total unique: {len(all_papers)}"
+                            )
                         except Exception as query_err:
                             logger.warning(f"Research query failed: {query_err}")
             except Exception as research_err:
@@ -229,7 +344,8 @@ def _run_pipeline(
                             }
                             key = paper.get("doi") or paper.get("url") or paper.get("title", "")
                             if key and key not in {
-                                p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers
+                                p.get("doi") or p.get("url") or p.get("title", "")
+                                for p in all_papers
                             }:
                                 all_papers.append(paper)
                 except Exception as fallback_err:
@@ -246,32 +362,73 @@ def _run_pipeline(
                 for s in ch_config.get("sections", [])
                 if s.get("instructions")
             }
-            _set_chapter_status(db, run_id, ch_num, "research", 100, f"Found {len(all_papers)} papers")
+            _set_chapter_status(
+                db, run_id, ch_num, "research", 100, f"Found {len(all_papers)} papers"
+            )
             db.commit()
             research = _run_async(summarize_papers(all_papers, section_instructions or None))
 
-            # Phase 2: Writing
-            _update_run(db, run_id, phase="writing", progress=_progress(1), message=f"Writing Chapter {ch_num}...")
+            # Phase 2: Writing (streamed)
+            _update_run(
+                db,
+                run_id,
+                phase="writing",
+                progress=_progress(1),
+                message=f"Writing Chapter {ch_num}...",
+                chapter_number=ch_num,
+            )
             _set_chapter_status(db, run_id, ch_num, "writing", 0, "Drafting chapter")
-            chapter_text = _run_async(
-                write_chapter(
+            _publish_event(
+                run_id,
+                {
+                    "type": "phase",
+                    "phase": "writing",
+                    "chapter": ch_num,
+                    "progress": _progress(1),
+                    "message": f"Writing Chapter {ch_num}...",
+                },
+            )
+
+            def _on_write_chunk(chunk: str, *, _ch: int = ch_num) -> None:
+                _publish_event(
+                    run_id,
+                    {"type": "chunk", "chapter": _ch, "phase": "writing", "text": chunk},
+                )
+
+            chapter_text = _consume_stream(
+                stream_write_chapter(
                     base_prompt=base_prompt,
                     chapter_config=ch_config,
                     style_config=style_config,
                     research=research,
                     job_config=job_config,
                     previous_chapters=all_chapter_texts if all_chapter_texts else None,
-                )
+                ),
+                on_chunk=_on_write_chunk,
             )
 
             # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
-            _update_run(db, run_id, phase="writing", progress=_progress(2), message=f"Formatting citations for Chapter {ch_num}...")
+            _update_run(
+                db,
+                run_id,
+                phase="writing",
+                progress=_progress(2),
+                message=f"Formatting citations for Chapter {ch_num}...",
+                chapter_number=ch_num,
+            )
             _set_chapter_status(db, run_id, ch_num, "writing", 80, "Compiling inline citations")
             chapter_text = replace_inline_citations(chapter_text, research.citations, citation_style)
 
             # Phase 4: Pre-humanization review
             if not skip_review:
-                _update_run(db, run_id, phase="review", progress=_progress(2), message=f"Pre-reviewing Chapter {ch_num}...")
+                _update_run(
+                    db,
+                    run_id,
+                    phase="review",
+                    progress=_progress(2),
+                    message=f"Pre-reviewing Chapter {ch_num}...",
+                    chapter_number=ch_num,
+                )
                 _set_chapter_status(db, run_id, ch_num, "review", 0, "Pre-reviewing style and facts")
                 style_review = _run_async(review_style(chapter_text, ch_config, style_config))
                 fact_result = _run_async(fact_check(chapter_text, research.citations))
@@ -280,32 +437,115 @@ def _run_pipeline(
             else:
                 pre_score = 75
 
-            # Phase 5: Humanize
+            # Phase 5: Humanize (streamed)
             if not skip_humanize:
-                _update_run(db, run_id, phase="humanize", progress=_progress(3), message=f"Humanizing Chapter {ch_num}...")
+                _update_run(
+                    db,
+                    run_id,
+                    phase="humanize",
+                    progress=_progress(3),
+                    message=f"Humanizing Chapter {ch_num}...",
+                    chapter_number=ch_num,
+                )
                 _set_chapter_status(db, run_id, ch_num, "humanize", 0, "Humanizing draft")
-                humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="medium"))
-                chapter_text = humanize_result.final_text
+                _publish_event(
+                    run_id,
+                    {
+                        "type": "phase",
+                        "phase": "humanize",
+                        "chapter": ch_num,
+                        "progress": _progress(3),
+                        "message": f"Humanizing Chapter {ch_num}...",
+                    },
+                )
 
-                # Phase 6: Post-humanization review
+                def _record_attempt(
+                    original, rewritten, intensity, before, after, *, _ch: int = ch_num
+                ):
+                    ch_db = (
+                        db.query(Chapter)
+                        .filter(Chapter.job_id == job_id, Chapter.chapter_number == _ch)
+                        .first()
+                    )
+                    if not ch_db:
+                        return
+                    attempt = HumanizerAttempt(
+                        chapter_id=ch_db.id,
+                        run_id=run_id,
+                        original_text=original,
+                        rewritten_text=rewritten,
+                        intensity=intensity,
+                        ai_score_before=before,
+                        ai_score_after=after,
+                    )
+                    db.add(attempt)
+                    db.commit()
+
+                def _on_humanize_chunk(chunk: str, *, _ch: int = ch_num) -> None:
+                    _publish_event(
+                        run_id,
+                        {
+                            "type": "chunk",
+                            "chapter": _ch,
+                            "phase": "humanize",
+                            "text": chunk,
+                        },
+                    )
+
+                rewritten = _consume_stream(
+                    stream_humanize_text(
+                        chapter_text,
+                        intensity="medium",
+                    ),
+                    on_chunk=_on_humanize_chunk,
+                )
+                _record_attempt(chapter_text, rewritten, "medium", None, None)
+                chapter_text = rewritten
+
                 if not skip_review:
-                    _update_run(db, run_id, phase="review", progress=_progress(4), message=f"Post-reviewing Chapter {ch_num}...")
+                    _update_run(
+                        db,
+                        run_id,
+                        phase="review",
+                        progress=_progress(4),
+                        message=f"Post-reviewing Chapter {ch_num}...",
+                        chapter_number=ch_num,
+                    )
                     _set_chapter_status(db, run_id, ch_num, "review", 60, "Post-reviewing style and facts")
                     style_review = _run_async(review_style(chapter_text, ch_config, style_config))
                     fact_result = _run_async(fact_check(chapter_text, research.citations))
                     post_score = (style_review.score + fact_result.score) // 2
-                    _set_chapter_status(db, run_id, ch_num, "review", 90, f"Post-review score: {post_score}")
+                    _set_chapter_status(
+                        db, run_id, ch_num, "review", 90, f"Post-review score: {post_score}"
+                    )
                 else:
                     post_score = pre_score
 
-                # AI detection + optional re-humanize
                 detection = detect_ai_text(chapter_text)
-                _set_chapter_status(db, run_id, ch_num, "humanize", 80, f"AI detection score: {detection.score}")
+                _set_chapter_status(
+                    db, run_id, ch_num, "humanize", 80, f"AI detection score: {detection.score}"
+                )
                 if not detection.pass_quality and detection.score > 60:
-                    _update_run(db, run_id, phase="humanize", progress=_progress(5), message=f"Re-humanizing Chapter {ch_num} (AI score high)...")
-                    _set_chapter_status(db, run_id, ch_num, "humanize", 90, "Re-humanizing high-AI sections")
-                    humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="aggressive"))
-                    chapter_text = humanize_result.final_text
+                    _update_run(
+                        db,
+                        run_id,
+                        phase="humanize",
+                        progress=_progress(5),
+                        message=f"Re-humanizing Chapter {ch_num} (AI score high)...",
+                        chapter_number=ch_num,
+                    )
+                    _set_chapter_status(
+                        db, run_id, ch_num, "humanize", 90, "Re-humanizing high-AI sections"
+                    )
+                    rewritten = _consume_stream(
+                        stream_humanize_text(
+                            chapter_text,
+                            intensity="aggressive",
+                        ),
+                        on_chunk=_on_humanize_chunk,
+                    )
+                    _record_attempt(chapter_text, rewritten, "aggressive", None, None)
+                    chapter_text = rewritten
                     detection = detect_ai_text(chapter_text)
             else:
                 post_score = pre_score
@@ -314,7 +554,14 @@ def _run_pipeline(
             avg_score = post_score if not skip_review else pre_score
 
             # Phase 7: Append reference list and export
-            _update_run(db, run_id, phase="export", progress=_progress(6), message=f"Exporting Chapter {ch_num}...")
+            _update_run(
+                db,
+                run_id,
+                phase="export",
+                progress=_progress(6),
+                message=f"Exporting Chapter {ch_num}...",
+                chapter_number=ch_num,
+            )
             _set_chapter_status(db, run_id, ch_num, "export", 0, "Appending references")
             refs = format_reference_list(research.citations, citation_style)
             if refs:
@@ -329,17 +576,39 @@ def _run_pipeline(
                 .first()
             )
             if ch_db:
+                word_count = len(chapter_text.split())
                 ch_db.content = chapter_text
-                ch_db.word_count = len(chapter_text.split())
+                ch_db.word_count = word_count
                 ch_db.ai_score = detection.score
                 ch_db.style_score = float(avg_score)
                 ch_db.status = "complete"
+                revision = ChapterContentRevision(
+                    chapter_id=ch_db.id,
+                    content=chapter_text,
+                    source="pipeline",
+                    word_count=word_count,
+                    ai_score=detection.score,
+                )
+                db.add(revision)
 
             _set_chapter_status(db, run_id, ch_num, "complete", 100, f"Done (score {avg_score})")
             db.commit()
+            _publish_event(
+                run_id,
+                {
+                    "type": "chapter",
+                    "chapter": ch_num,
+                    "status": "complete",
+                    "word_count": ch_db.word_count if ch_db else 0,
+                    "ai_score": float(detection.score),
+                },
+            )
             all_chapter_texts.append(chapter_text)
 
-        _update_run(db, run_id, phase="complete", progress=100, message="Generation complete!")
+        _update_run(
+            db, run_id, phase="complete", progress=100, message="Generation complete!"
+        )
+        _publish_event(run_id, {"type": "complete", "job_id": job_id, "run_id": run_id})
 
         job.status = "complete"
         job.updated_at = datetime.now(timezone.utc)
@@ -356,9 +625,14 @@ def _run_pipeline(
             message=f"Generation failed: {error_msg}",
             error=f"{error_msg}\n{full_traceback}",
         )
+        _publish_event(
+            run_id,
+            {"type": "error", "message": error_msg, "traceback": full_traceback},
+        )
     finally:
         with _run_lock:
             _active_runs.pop(run_id, None)
+            _active_run_cancels.pop(run_id, None)
         db.close()
 
 
@@ -387,6 +661,16 @@ def _set_chapter_status(
         "message": message,
     }
     run.chapter_status_json = json.dumps(statuses)
+    _publish_event(
+        run_id,
+        {
+            "type": "chapter",
+            "chapter": chapter_number,
+            "status": status,
+            "progress": progress,
+            "message": message,
+        },
+    )
 
 
 def _update_run(db: Session, run_id: str, **kwargs):
@@ -402,9 +686,10 @@ def _update_run(db: Session, run_id: str, **kwargs):
             run.message = kwargs.get("message", run.message)
         else:
             setattr(run, k, v)
-    if kwargs.get("phase") == "complete":
+    if kwargs.get("phase") in ("complete", "cancelled"):
         run.completed_at = datetime.now(timezone.utc)
-        run.progress = 100
+        if kwargs.get("phase") == "complete":
+            run.progress = 100
     db.commit()
 
 
@@ -419,12 +704,14 @@ def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
                 try:
                     configs.append(load_chapter_template(template_file))
                 except FileNotFoundError:
-                    configs.append({
-                        "name": ch_ref.get("name", f"Chapter {len(configs)+1}"),
-                        "sections": ch_ref.get("sections", []),
-                        "forbidden": ch_ref.get("forbidden", []),
-                        "required": ch_ref.get("required", []),
-                    })
+                    configs.append(
+                        {
+                            "name": ch_ref.get("name", f"Chapter {len(configs)+1}"),
+                            "sections": ch_ref.get("sections", []),
+                            "forbidden": ch_ref.get("forbidden", []),
+                            "required": ch_ref.get("required", []),
+                        }
+                    )
             else:
                 configs.append(ch_ref)
         elif isinstance(ch_ref, str):
@@ -435,28 +722,37 @@ def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
 
     if not configs:
         for i in range(1, 4):
-            configs.append({
-                "name": f"Chapter {i}",
-                "sections": [{"id": f"{i}.1", "title": "Section 1", "paragraphs": 3, "word_count": 500}],
-                "forbidden": [],
-                "required": [],
-            })
+            configs.append(
+                {
+                    "name": f"Chapter {i}",
+                    "sections": [
+                        {
+                            "id": f"{i}.1",
+                            "title": "Section 1",
+                            "paragraphs": 3,
+                            "word_count": 500,
+                        }
+                    ],
+                    "forbidden": [],
+                    "required": [],
+                }
+            )
 
     return configs
 
 
-def _extract_research_queries(ch_config: dict[str, Any], topic: str = "") -> list[str]:
+def _extract_research_queries(
+    ch_config: dict[str, Any], topic: str = ""
+) -> list[str]:
     queries: list[str] = []
     topic = (topic or "").strip()
     for section in ch_config.get("sections", []):
         title = (section.get("title", "") or "").strip()
         instructions = (section.get("instructions", "") or "").strip()
-        # Skip placeholder sections without meaningful instructions
         if title.lower() in ("section 1", "section", "") and not instructions:
             continue
         if not title and not instructions:
             continue
-        # Build concise query from topic + title + first sentence of instructions
         parts = [p for p in [topic, title] if p]
         if instructions:
             first_sentence = instructions.split(".")[0].strip()

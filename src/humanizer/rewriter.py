@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any
+from typing import AsyncIterator
 
-from src.utils.llm_client import call_llm
+from src.utils.llm_client import call_llm, stream_llm
 
 
 ENTROPY_SYSTEM_PROMPT = """You are a style diversification specialist. Your task is to rewrite academic text to make it sound more natural and human-like, while preserving all citations and academic integrity.
@@ -44,30 +43,16 @@ AI PHRASES TO REPLACE:
 """
 
 
-async def humanize_text(
-    text: str,
-    intensity: str = "medium",
-    preserve_citations: bool = True,
-) -> str:
-    """Rewrite text to sound more human-like.
+INTENSITY_INSTRUCTIONS = {
+    "light": "Make subtle changes — only fix the most obvious AI patterns. Keep the overall structure intact.",
+    "medium": "Rewrite for natural flow — vary sentence structures, replace AI phrases, add natural rhythm while keeping academic tone.",
+    "aggressive": "Thoroughly rewrite for maximum naturalness — restructure sentences, vary vocabulary significantly, add natural imperfections while preserving all citations and facts.",
+}
 
-    Args:
-        text: Input text to humanize.
-        intensity: "light", "medium", or "aggressive".
-        preserve_citations: Whether to preserve citation IDs.
 
-    Returns:
-        Humanized text.
-    """
-    intensity_instructions = {
-        "light": "Make subtle changes — only fix the most obvious AI patterns. Keep the overall structure intact.",
-        "medium": "Rewrite for natural flow — vary sentence structures, replace AI phrases, add natural rhythm while keeping academic tone.",
-        "aggressive": "Thoroughly rewrite for maximum naturalness — restructure sentences, vary vocabulary significantly, add natural imperfections while preserving all citations and facts.",
-    }
-
-    instruction = intensity_instructions.get(intensity, intensity_instructions["medium"])
-
-    prompt = f"""Rewrite the following academic text to sound more human-written.
+def _build_prompt(text: str, intensity: str) -> str:
+    instruction = INTENSITY_INSTRUCTIONS.get(intensity, INTENSITY_INSTRUCTIONS["medium"])
+    return f"""Rewrite the following academic text to sound more human-written.
 
 {instruction}
 
@@ -80,6 +65,15 @@ Text to rewrite:
 
 Return ONLY the rewritten text. No explanations, no meta-commentary."""
 
+
+async def humanize_text(
+    text: str,
+    intensity: str = "medium",
+    preserve_citations: bool = True,
+) -> str:
+    """Rewrite text to sound more human-like and return the full result."""
+    del preserve_citations  # always preserved by the prompt
+    prompt = _build_prompt(text, intensity)
     return await call_llm(
         prompt=prompt,
         system_prompt=ENTROPY_SYSTEM_PROMPT,
@@ -87,15 +81,22 @@ Return ONLY the rewritten text. No explanations, no meta-commentary."""
     )
 
 
+async def stream_humanize_text(
+    text: str,
+    intensity: str = "medium",
+) -> AsyncIterator[str]:
+    """Rewrite text to sound more human-like, streaming chunks as they arrive."""
+    prompt = _build_prompt(text, intensity)
+    async for chunk in stream_llm(
+        prompt=prompt,
+        system_prompt=ENTROPY_SYSTEM_PROMPT,
+        temperature=0.8,
+    ):
+        yield chunk
+
+
 async def polish_text(text: str) -> str:
-    """Final grammar and flow polish.
-
-    Args:
-        text: Text to polish.
-
-    Returns:
-        Polished text.
-    """
+    """Final grammar and flow polish."""
     prompt = f"""Perform final grammar and flow polish on this academic text.
 
 Fix:
