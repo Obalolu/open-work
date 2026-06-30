@@ -3,10 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { useStore } from "@/stores/jobStore";
-import { usePolling } from "@/hooks/usePolling";
-import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { StatCard } from "@/components/ui/StatCard";
 import { Button } from "@/components/ui/Button";
@@ -21,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
-import { Progress } from "@/components/ui/Progress";
 import {
   Dialog,
   DialogContent,
@@ -32,7 +28,8 @@ import {
 } from "@/components/ui/Dialog";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { toast } from "sonner";
-import type { GenerationStatus, JobDetail } from "@/lib/types";
+import type { JobDetail } from "@/lib/types";
+import { GenerationStream } from "@/components/generation/GenerationStream";
 import {
   ArrowLeft,
   Play,
@@ -42,9 +39,6 @@ import {
   AlertTriangle,
   Edit,
   X,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
 } from "lucide-react";
 
 const STYLE_OPTIONS = [
@@ -65,7 +59,6 @@ export default function JobDetailPage() {
   const { currentJob, fetchJob, startGeneration, updateJob } = useStore();
   const [generating, setGenerating] = useState(false);
   const [notFound, setNotFound] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
   const [style, setStyle] = useState("academic_balanced.yaml");
   const [formats, setFormats] = useState<string[]>(["md"]);
   const [skipHumanize, setSkipHumanize] = useState(false);
@@ -82,9 +75,6 @@ export default function JobDetailPage() {
   >(null);
   const [saving, setSaving] = useState(false);
 
-  const pollFn = useCallback((id: string) => api.generate.status(id), []);
-  const { status: pollStatus, isPolling, startPolling } = usePolling(jobId, pollFn, 2000);
-
   useEffect(() => {
     const load = async () => {
       await fetchJob(jobId);
@@ -97,54 +87,39 @@ export default function JobDetailPage() {
   }, [jobId, fetchJob]);
 
   useEffect(() => {
-    if (currentJob?.status === "generating") {
-      startPolling();
-    }
-  }, [currentJob?.status, startPolling]);
-
-  useEffect(() => {
-    if (pollStatus?.phase === "complete" || pollStatus?.phase === "error") {
-      fetchJob(jobId);
-      if (pollStatus.phase === "complete") {
-        toast.success("Generation complete", { description: currentJob?.topic });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollStatus?.phase, jobId]);
-
-  useEffect(() => {
     if (currentJob && selectedChapters.size === 0) {
       setSelectedChapters(new Set(currentJob.chapters.map((ch) => ch.chapter_number)));
     }
   }, [currentJob, selectedChapters.size]);
 
-  const handleGenerate = async (chapterNums?: number[]) => {
-    if (!currentJob) return;
-    const chapters = chapterNums || Array.from(selectedChapters);
-    if (chapters.length === 0) {
-      toast.error("Select at least one chapter");
-      return;
-    }
-    setGenerating(true);
-    setGenError(null);
-    try {
-      await startGeneration(jobId, chapters, {
-        style,
-        formats,
-        skip_humanize: skipHumanize,
-        skip_review: skipReview,
-      });
-      startPolling();
-      toast.success("Generation started", {
-        description: `${chapters.length} chapter${chapters.length === 1 ? "" : "s"} queued`,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setGenError(msg);
-      toast.error("Failed to start generation", { description: msg });
-    }
-    setGenerating(false);
-  };
+  const handleGenerate = useCallback(
+    async (chapterNums?: number[]) => {
+      if (!currentJob) return;
+      const chapters = chapterNums || Array.from(selectedChapters);
+      if (chapters.length === 0) {
+        toast.error("Select at least one chapter");
+        return;
+      }
+      setGenerating(true);
+      try {
+        await startGeneration(jobId, chapters, {
+          style,
+          formats,
+          skip_humanize: skipHumanize,
+          skip_review: skipReview,
+        });
+        toast.success("Generation started", {
+          description: `${chapters.length} chapter${chapters.length === 1 ? "" : "s"} queued`,
+        });
+      } catch (e) {
+        toast.error("Failed to start generation", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      }
+      setGenerating(false);
+    },
+    [currentJob, selectedChapters, jobId, startGeneration, style, formats, skipHumanize, skipReview]
+  );
 
   const toggleChapter = (num: number) => {
     setSelectedChapters((prev) => {
@@ -247,8 +222,7 @@ export default function JobDetailPage() {
         ).toFixed(1)
       : "N/A";
 
-  const errorTraceback =
-    pollStatus?.phase === "error" && pollStatus.message ? pollStatus.message : null;
+  const isGenerating = currentJob.status === "generating";
 
   return (
     <div className="space-y-6">
@@ -279,46 +253,36 @@ export default function JobDetailPage() {
           </Button>
           <Button
             onClick={() => handleGenerate()}
-            disabled={generating || isPolling || selectedChapters.size === 0}
-            loading={generating || isPolling}
+            disabled={generating || isGenerating || selectedChapters.size === 0}
+            loading={generating}
           >
-            {!generating && !isPolling && <Play />}
-            {generating || isPolling
-              ? "Generating..."
-              : `Generate ${selectedChapters.size || ""}`.trim()}
+            {!generating && !isGenerating && <Play />}
+            {generating
+              ? "Starting…"
+              : isGenerating
+                ? "Generating…"
+                : `Generate ${selectedChapters.size || ""}`.trim()}
           </Button>
         </div>
       </div>
 
-      {genError && (
-        <div className="rounded-md border border-danger-soft bg-danger-soft/40 p-4 text-sm text-danger">
-          <p className="font-medium">Generation failed to start</p>
-          <p className="mt-1 text-danger/80">{genError}</p>
-        </div>
-      )}
-
-      {isPolling && pollStatus && <GenerationProgress status={pollStatus} />}
-
-      {pollStatus?.phase === "error" && errorTraceback && (
-        <div className="rounded-md border border-danger-soft bg-danger-soft/40 p-4 text-sm text-danger">
-          <p className="font-medium">Generation failed</p>
-          <p className="mt-1 text-danger/80">{pollStatus.message}</p>
-          {errorTraceback.includes("Traceback") && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs">Show traceback</summary>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-danger-soft p-3 text-2xs text-danger">
-                {errorTraceback}
-              </pre>
-            </details>
-          )}
-        </div>
+      {isGenerating && (
+        <GenerationStream
+          jobId={jobId}
+          jobTopic={currentJob.topic}
+          onComplete={() => {
+            fetchJob(jobId);
+            toast.success("Generation complete", {
+              description: currentJob.topic,
+            });
+          }}
+          onCancel={() => fetchJob(jobId)}
+        />
       )}
 
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <CardTitle>Generation options</CardTitle>
-          </div>
+          <CardTitle>Generation options</CardTitle>
           <CardDescription>Style, output formats, and pipeline toggles</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
@@ -426,7 +390,7 @@ export default function JobDetailPage() {
                   size="sm"
                   variant="ghost"
                   onClick={() => handleGenerate([ch.chapter_number])}
-                  disabled={generating || isPolling}
+                  disabled={generating || isGenerating}
                   className="text-primary hover:bg-primary/10 hover:text-primary"
                 >
                   <Play />
@@ -566,41 +530,5 @@ export default function JobDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-const phaseLabels: Record<string, { label: string; icon: React.ReactNode }> = {
-  queued: { label: "Queued", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  starting: { label: "Starting", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  research: { label: "Researching", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  writing: { label: "Writing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  review: { label: "Reviewing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  humanize: { label: "Humanizing", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  export: { label: "Exporting", icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  complete: { label: "Complete", icon: <CheckCircle2 className="h-4 w-4 text-success" /> },
-  error: { label: "Error", icon: <AlertCircle className="h-4 w-4 text-danger" /> },
-};
-
-function GenerationProgress({ status }: { status: GenerationStatus }) {
-  const phase = phaseLabels[status.phase] || {
-    label: status.phase,
-    icon: <Loader2 className="h-4 w-4 animate-spin" />,
-  };
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-info-soft bg-info-soft/40 p-4"
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-info">{phase.icon}</span>
-        <span className="text-sm font-medium text-info">{phase.label}</span>
-        <span className="ml-auto text-2xs text-muted-foreground">
-          {status.progress}%
-        </span>
-      </div>
-      <Progress value={status.progress} className="bg-info/20" indicatorClassName="bg-info" />
-      <p className="mt-2 text-2xs text-muted-foreground">{status.message}</p>
-    </motion.div>
   );
 }

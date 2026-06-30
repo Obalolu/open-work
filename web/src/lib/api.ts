@@ -7,6 +7,10 @@ import type {
   Source,
   AppConfig,
   ProxyPoolStatus,
+  ChapterRevisionSummary,
+  ChapterRevisionDetail,
+  HumanizerAttemptSummary,
+  HealthResponse,
 } from "./types";
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "";
@@ -65,6 +69,27 @@ export const api = {
       ),
     get: (jobId: string, num: number) =>
       request<ChapterDetail>(`/api/jobs/${jobId}/chapters/${num}`),
+    update: (
+      jobId: string,
+      num: number,
+      data: { content: string; source?: string; summary?: string }
+    ) =>
+      request<ChapterDetail>(`/api/jobs/${jobId}/chapters/${num}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    revisions: (jobId: string, num: number) =>
+      request<ChapterRevisionSummary[]>(
+        `/api/jobs/${jobId}/chapters/${num}/revisions`
+      ),
+    revision: (jobId: string, num: number, revisionId: number) =>
+      request<ChapterRevisionDetail>(
+        `/api/jobs/${jobId}/chapters/${num}/revisions/${revisionId}`
+      ),
+    humanizerAttempts: (jobId: string, num: number) =>
+      request<HumanizerAttemptSummary[]>(
+        `/api/jobs/${jobId}/chapters/${num}/humanizer-attempts`
+      ),
     references: (jobId: string) =>
       request<{ content: string }>(`/api/jobs/${jobId}/references`),
   },
@@ -75,6 +100,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    cancel: (jobId: string) =>
+      request<{ ok: boolean; run_id: string }>(
+        `/api/jobs/${jobId}/generate/cancel`,
+        { method: "POST" }
+      ),
     status: (jobId: string) =>
       request<GenerationStatus>(`/api/jobs/${jobId}/generate/status`),
   },
@@ -103,4 +133,53 @@ export const api = {
     url: (jobId: string, chapter: number, format: string) =>
       `/api/jobs/${jobId}/chapters/${chapter}/export?format=${format}`,
   },
+
+  health: {
+    get: () => request<HealthResponse>("/api/health"),
+  },
 };
+
+/**
+ * Subscribe to the SSE generation stream. Yields parsed event dicts.
+ * Pass an `AbortSignal` to close the stream.
+ */
+export function streamGeneration(
+  jobId: string,
+  signal?: AbortSignal
+): AsyncGenerator<Record<string, unknown>> {
+  const url = `${API_BASE}/api/jobs/${jobId}/generate/stream`;
+  return (async function* () {
+    const res = await fetch(url, {
+      headers: { Accept: "text/event-stream" },
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`Stream failed: ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const evt of events) {
+          const line = evt.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try {
+            yield JSON.parse(payload);
+          } catch {
+            // ignore malformed
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  })();
+}
