@@ -211,7 +211,7 @@ class BaseAPIClient(ABC):
                     if PROXY_LIST:
                         wait_time = 0.5
                     else:
-                        wait_time = 3 * (2 ** attempt)
+                        wait_time = min(3 * (2 ** attempt), 10.0)
                     import logging
                     logging.getLogger(__name__).warning(
                         f"429 from {self.api_type}: waiting {wait_time:.1f}s "

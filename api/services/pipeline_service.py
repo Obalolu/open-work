@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 import traceback
@@ -13,12 +14,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 from api.database import SessionLocal
 from api.models import Chapter, GenerationRun, Job
 from src.config import get_output_dir, load_yaml
 from src.export.exporter import export_chapter
 from src.humanizer.pipeline import run_humanize_pipeline
-from src.research.semantic_scholar import search_papers
+from src.research.orchestrator import CitationResearcher
 from src.research.summarizer import summarize_papers
 from src.reviewers.ai_detector import detect_ai_text
 from src.reviewers.fact_checker import fact_check
@@ -87,7 +90,7 @@ def _run_pipeline(
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
-            _update_run(db, run_id, phase="error", error="Job not found")
+            _update_run(db, run_id, phase="error", message="Job not found", error="Job not found")
             return
 
         _update_run(db, run_id, phase="starting", message="Loading configs...")
@@ -131,24 +134,43 @@ def _run_pipeline(
 
             topic = job_config.get("topic", "research topic")
             research_queries = _extract_research_queries(ch_config)
-            all_papers = []
-            for query in research_queries[:5]:
-                loop = asyncio.new_event_loop()
-                try:
-                    papers = loop.run_until_complete(search_papers(query, max_results=10))
-                    all_papers.extend(papers)
-                except Exception:
-                    pass
-                finally:
-                    loop.close()
+            _update_run(db, run_id, message=f"Researching Chapter {ch_num}: {ch_name} (queries: {len(research_queries[:3])})...")
 
-            seen = set()
-            unique_papers = []
-            for p in all_papers:
-                key = p.get("doi") or p.get("url") or p.get("title", "")
-                if key not in seen:
-                    seen.add(key)
-                    unique_papers.append(p)
+            all_papers: list[dict] = []
+            try:
+                with CitationResearcher() as researcher:
+                    for query in research_queries[:3]:
+                        try:
+                            citations = researcher.research(query)
+                            for c in citations:
+                                paper = {
+                                    "title": c.title,
+                                    "authors": c.authors,
+                                    "year": c.year,
+                                    "doi": c.doi,
+                                    "url": c.paper_url,
+                                    "journal": c.venue,
+                                    "abstract": c.abstract_summary,
+                                    "source_type": c.source_type,
+                                    "citation_count": c.citation_count,
+                                    "confidence": c.confidence,
+                                    "api_source": c.api_source,
+                                }
+                                key = paper.get("doi") or paper.get("url") or paper.get("title", "")
+                                if key and key not in {p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers}:
+                                    all_papers.append(paper)
+                            logger.info(f"Research query '{query[:40]}...' returned {len(citations)} papers")
+                        except Exception as query_err:
+                            logger.warning(f"Research query failed: {query_err}")
+            except Exception as research_err:
+                logger.error(f"Research phase failed: {research_err}")
+                raise
+
+            if not all_papers:
+                raise RuntimeError(
+                    "Research returned no papers. "
+                    "Check API keys (OpenAlex, Semantic Scholar) and internet connectivity."
+                )
 
             section_instructions = {
                 str(s.get("id", "")): s.get("instructions", "")
@@ -156,10 +178,12 @@ def _run_pipeline(
                 if s.get("instructions")
             }
             loop = asyncio.new_event_loop()
-            research = loop.run_until_complete(
-                summarize_papers(unique_papers, section_instructions or None)
-            )
-            loop.close()
+            try:
+                research = loop.run_until_complete(
+                    summarize_papers(all_papers, section_instructions or None)
+                )
+            finally:
+                loop.close()
 
             _update_run(db, run_id, phase="writing", message=f"Writing Chapter {ch_num}...")
 
@@ -237,7 +261,16 @@ def _run_pipeline(
         db.commit()
 
     except Exception as e:
-        _update_run(db, run_id, phase="error", error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+        error_msg = f"{type(e).__name__}: {e}"
+        full_traceback = traceback.format_exc()
+        logger.error(f"Pipeline run {run_id} failed: {error_msg}\n{full_traceback}")
+        _update_run(
+            db,
+            run_id,
+            phase="error",
+            message=f"Generation failed: {error_msg}",
+            error=f"{error_msg}\n{full_traceback}",
+        )
     finally:
         with _run_lock:
             _active_runs.pop(run_id, None)

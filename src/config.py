@@ -42,7 +42,7 @@ def get_llm_config() -> dict[str, Any]:
 
     return {
         "provider": os.environ.get("OPENWORK_LLM_PROVIDER", "openai"),
-        "api_key": os.environ.get("OPENWORK_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+        "api_key": os.environ.get("OPENWORK_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
         "model": os.environ.get("OPENWORK_MODEL", "gpt-4o-mini"),
         "base_url": os.environ.get("OPENWORK_BASE_URL", ""),
         "temperature": float(os.environ.get("OPENWORK_TEMPERATURE", "0.7")),
