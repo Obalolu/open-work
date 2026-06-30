@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.config import get_project_root
@@ -41,12 +41,10 @@ def get_db():
 def _add_column_if_missing(table: str, column: str, definition: str) -> None:
     """Add a column to a SQLite table if it does not already exist."""
     with engine.connect() as conn:
-        result = conn.execute(
-            f"PRAGMA table_info({table})"  # noqa: S608
-        )
+        result = conn.execute(text(f"PRAGMA table_info({table})"))  # noqa: S608
         columns = {row[1] for row in result}
         if column not in columns:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")  # noqa: S608
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))  # noqa: S608
             conn.commit()
 
 
