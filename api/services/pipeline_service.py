@@ -161,7 +161,7 @@ def _run_pipeline(
                 message=f"Researching Chapter {ch_num}: {ch_name}...",
                 chapter_number=ch_num,
             )
-            _set_chapter_status(run, ch_num, "research", 0, f"Starting research for {ch_name}")
+            _set_chapter_status(db, run_id, ch_num, "research", 0, f"Starting research for {ch_name}")
             db.commit()
 
             topic = job_config.get("topic", "research topic")
@@ -178,7 +178,7 @@ def _run_pipeline(
                             message=f"Researching Chapter {ch_num}: query {q_idx + 1}/{len(research_queries[:3])}...",
                             chapter_number=ch_num,
                         )
-                        _set_chapter_status(run, ch_num, "research", q_progress, f"Query {q_idx + 1}/{len(research_queries[:3])}")
+                        _set_chapter_status(db, run_id, ch_num, "research", q_progress, f"Query {q_idx + 1}/{len(research_queries[:3])}")
                         db.commit()
                         try:
                             citations = researcher.research(query)
@@ -219,13 +219,13 @@ def _run_pipeline(
                 for s in ch_config.get("sections", [])
                 if s.get("instructions")
             }
-            _set_chapter_status(run, ch_num, "research", 100, f"Found {len(all_papers)} papers")
+            _set_chapter_status(db, run_id, ch_num, "research", 100, f"Found {len(all_papers)} papers")
             db.commit()
             research = _run_async(summarize_papers(all_papers, section_instructions or None))
 
             # Phase 2: Writing
             _update_run(db, run_id, phase="writing", progress=_progress(1), message=f"Writing Chapter {ch_num}...")
-            _set_chapter_status(run, ch_num, "writing", 0, "Drafting chapter")
+            _set_chapter_status(db, run_id, ch_num, "writing", 0, "Drafting chapter")
             chapter_text = _run_async(
                 write_chapter(
                     base_prompt=base_prompt,
@@ -239,44 +239,44 @@ def _run_pipeline(
 
             # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
             _update_run(db, run_id, phase="writing", progress=_progress(2), message=f"Formatting citations for Chapter {ch_num}...")
-            _set_chapter_status(run, ch_num, "writing", 80, "Compiling inline citations")
+            _set_chapter_status(db, run_id, ch_num, "writing", 80, "Compiling inline citations")
             chapter_text = replace_inline_citations(chapter_text, research.citations, citation_style)
 
             # Phase 4: Pre-humanization review
             if not skip_review:
                 _update_run(db, run_id, phase="review", progress=_progress(2), message=f"Pre-reviewing Chapter {ch_num}...")
-                _set_chapter_status(run, ch_num, "review", 0, "Pre-reviewing style and facts")
+                _set_chapter_status(db, run_id, ch_num, "review", 0, "Pre-reviewing style and facts")
                 style_review = _run_async(review_style(chapter_text, ch_config, style_config))
                 fact_result = _run_async(fact_check(chapter_text, research.citations))
                 pre_score = (style_review.score + fact_result.score) // 2
-                _set_chapter_status(run, ch_num, "review", 50, f"Pre-review score: {pre_score}")
+                _set_chapter_status(db, run_id, ch_num, "review", 50, f"Pre-review score: {pre_score}")
             else:
                 pre_score = 75
 
             # Phase 5: Humanize
             if not skip_humanize:
                 _update_run(db, run_id, phase="humanize", progress=_progress(3), message=f"Humanizing Chapter {ch_num}...")
-                _set_chapter_status(run, ch_num, "humanize", 0, "Humanizing draft")
+                _set_chapter_status(db, run_id, ch_num, "humanize", 0, "Humanizing draft")
                 humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="medium"))
                 chapter_text = humanize_result.final_text
 
                 # Phase 6: Post-humanization review
                 if not skip_review:
                     _update_run(db, run_id, phase="review", progress=_progress(4), message=f"Post-reviewing Chapter {ch_num}...")
-                    _set_chapter_status(run, ch_num, "review", 60, "Post-reviewing style and facts")
+                    _set_chapter_status(db, run_id, ch_num, "review", 60, "Post-reviewing style and facts")
                     style_review = _run_async(review_style(chapter_text, ch_config, style_config))
                     fact_result = _run_async(fact_check(chapter_text, research.citations))
                     post_score = (style_review.score + fact_result.score) // 2
-                    _set_chapter_status(run, ch_num, "review", 90, f"Post-review score: {post_score}")
+                    _set_chapter_status(db, run_id, ch_num, "review", 90, f"Post-review score: {post_score}")
                 else:
                     post_score = pre_score
 
                 # AI detection + optional re-humanize
                 detection = detect_ai_text(chapter_text)
-                _set_chapter_status(run, ch_num, "humanize", 80, f"AI detection score: {detection.score}")
+                _set_chapter_status(db, run_id, ch_num, "humanize", 80, f"AI detection score: {detection.score}")
                 if not detection.pass_quality and detection.score > 60:
                     _update_run(db, run_id, phase="humanize", progress=_progress(5), message=f"Re-humanizing Chapter {ch_num} (AI score high)...")
-                    _set_chapter_status(run, ch_num, "humanize", 90, "Re-humanizing high-AI sections")
+                    _set_chapter_status(db, run_id, ch_num, "humanize", 90, "Re-humanizing high-AI sections")
                     humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="aggressive"))
                     chapter_text = humanize_result.final_text
                     detection = detect_ai_text(chapter_text)
@@ -288,13 +288,13 @@ def _run_pipeline(
 
             # Phase 7: Append reference list and export
             _update_run(db, run_id, phase="export", progress=_progress(6), message=f"Exporting Chapter {ch_num}...")
-            _set_chapter_status(run, ch_num, "export", 0, "Appending references")
+            _set_chapter_status(db, run_id, ch_num, "export", 0, "Appending references")
             refs = format_reference_list(research.citations, citation_style)
             if refs:
                 chapter_text = chapter_text.rstrip() + "\n\n---\n\n" + refs
 
             export_chapter(chapter_text, job_id, ch_num, output_formats or ["md"])
-            _set_chapter_status(run, ch_num, "export", 100, "Exported")
+            _set_chapter_status(db, run_id, ch_num, "export", 100, "Exported")
 
             ch_db = (
                 db.query(Chapter)
@@ -308,7 +308,7 @@ def _run_pipeline(
                 ch_db.style_score = float(avg_score)
                 ch_db.status = "complete"
 
-            _set_chapter_status(run, ch_num, "complete", 100, f"Done (score {avg_score})")
+            _set_chapter_status(db, run_id, ch_num, "complete", 100, f"Done (score {avg_score})")
             db.commit()
             all_chapter_texts.append(chapter_text)
 
@@ -343,12 +343,16 @@ def _get_chapter_status(run: GenerationRun) -> dict[str, Any]:
 
 
 def _set_chapter_status(
-    run: GenerationRun,
+    db: Session,
+    run_id: str,
     chapter_number: int,
     status: str,
     progress: int,
     message: str,
 ):
+    run = db.query(GenerationRun).filter(GenerationRun.id == run_id).first()
+    if not run:
+        return
     statuses = _get_chapter_status(run)
     statuses[str(chapter_number)] = {
         "status": status,
