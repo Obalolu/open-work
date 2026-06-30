@@ -201,12 +201,39 @@ def _run_pipeline(
                                     p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers
                                 }:
                                     all_papers.append(paper)
-                            logger.info(f"Research query '{query[:40]}...' returned {len(citations)} papers")
+                            logger.info(f"Research query '{query[:60]}...' returned {len(citations)} papers, total unique: {len(all_papers)}")
                         except Exception as query_err:
                             logger.warning(f"Research query failed: {query_err}")
             except Exception as research_err:
                 logger.error(f"Research phase failed: {research_err}")
                 raise
+
+            if not all_papers:
+                logger.warning("No papers found from section queries; trying topic fallback.")
+                try:
+                    with CitationResearcher() as fallback_researcher:
+                        fallback_citations = fallback_researcher.research(topic)
+                        for c in fallback_citations:
+                            paper = {
+                                "title": c.title,
+                                "authors": c.authors,
+                                "year": c.year,
+                                "doi": c.doi,
+                                "url": c.paper_url,
+                                "journal": c.venue,
+                                "abstract": c.abstract_summary,
+                                "source_type": c.source_type,
+                                "citation_count": c.citation_count,
+                                "confidence": c.confidence,
+                                "api_source": c.api_source,
+                            }
+                            key = paper.get("doi") or paper.get("url") or paper.get("title", "")
+                            if key and key not in {
+                                p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers
+                            }:
+                                all_papers.append(paper)
+                except Exception as fallback_err:
+                    logger.warning(f"Topic fallback research failed: {fallback_err}")
 
             if not all_papers:
                 raise RuntimeError(
