@@ -9,7 +9,10 @@ import type {
   ProxyPoolStatus,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const rawBase = process.env.NEXT_PUBLIC_API_URL || "";
+// Ignore Docker-internal hostnames that the browser cannot resolve.
+const API_BASE =
+  /^https?:\/\/(api|localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(rawBase) ? "" : rawBase;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
