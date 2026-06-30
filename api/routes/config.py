@@ -19,7 +19,10 @@ def get_config():
     if not config_path.exists():
         return AppConfig(
             llm=LLMConfig(api_key_set=bool(os.environ.get("OPENWORK_API_KEY") or os.environ.get("OPENAI_API_KEY"))),
-            research=ResearchConfig(),
+            research=ResearchConfig(
+                semantic_scholar_api_key_set=bool(os.environ.get("SEMANTIC_SCHOLAR_API_KEY")),
+                openalex_api_key_set=bool(os.environ.get("OPENALEX_API_KEY")),
+            ),
         )
 
     try:
@@ -28,7 +31,10 @@ def get_config():
     except Exception:
         return AppConfig(
             llm=LLMConfig(api_key_set=bool(os.environ.get("OPENWORK_API_KEY") or os.environ.get("OPENAI_API_KEY"))),
-            research=ResearchConfig(),
+            research=ResearchConfig(
+                semantic_scholar_api_key_set=bool(os.environ.get("SEMANTIC_SCHOLAR_API_KEY")),
+                openalex_api_key_set=bool(os.environ.get("OPENALEX_API_KEY")),
+            ),
         )
 
     llm = cfg.get("llm", {})
