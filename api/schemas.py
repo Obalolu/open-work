@@ -9,13 +9,18 @@ from pydantic import BaseModel, Field
 
 
 # ── Job ──────────────────────────────────────────────
+class ChapterCreate(BaseModel):
+    name: str
+    template: Optional[str] = None
+
+
 class JobCreate(BaseModel):
     topic: str
     paper_type: str = "literature_review"
     citation_style: str = "apa"
     target_audience: str = "graduate_students"
     research_queries: list[str] = Field(default_factory=list)
-    chapters: list[dict] = Field(default_factory=list)
+    chapters: list[ChapterCreate] = Field(default_factory=list)
 
 
 class JobUpdate(BaseModel):
@@ -23,6 +28,8 @@ class JobUpdate(BaseModel):
     paper_type: Optional[str] = None
     citation_style: Optional[str] = None
     target_audience: Optional[str] = None
+    research_queries: Optional[list[str]] = None
+    chapters: Optional[list[ChapterCreate]] = None
 
 
 class JobResponse(BaseModel):
@@ -89,6 +96,7 @@ class ChapterDetail(BaseModel):
 class GenerateRequest(BaseModel):
     chapters: list[int] = Field(default_factory=list, description="Chapter numbers to generate")
     style: str = "academic_balanced.yaml"
+    formats: list[str] = Field(default_factory=lambda: ["md"], description="Output formats")
     skip_humanize: bool = False
     skip_review: bool = False
 

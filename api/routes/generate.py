@@ -35,6 +35,7 @@ def start_generation(job_id: str, data: GenerateRequest, db: Session = Depends(g
         job_id=job_id,
         chapter_numbers=chapters,
         style_file=data.style,
+        output_formats=data.formats,
         skip_humanize=data.skip_humanize,
         skip_review=data.skip_review,
     )

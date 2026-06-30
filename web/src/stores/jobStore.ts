@@ -24,9 +24,24 @@ interface AppState {
     paper_type?: string;
     citation_style?: string;
     target_audience?: string;
+    research_queries?: string[];
+    chapters?: { name: string; template?: string }[];
   }) => Promise<Job>;
   deleteJob: (id: string) => Promise<void>;
-  startGeneration: (jobId: string, chapters: number[]) => Promise<void>;
+  updateJob: (id: string, data: {
+    topic?: string;
+    paper_type?: string;
+    citation_style?: string;
+    target_audience?: string;
+    research_queries?: string[];
+    chapters?: { name: string; template?: string }[];
+  }) => Promise<Job>;
+  startGeneration: (jobId: string, chapters: number[], options?: {
+    style?: string;
+    formats?: string[];
+    skip_humanize?: boolean;
+    skip_review?: boolean;
+  }) => Promise<void>;
   pollGenerationStatus: (jobId: string) => Promise<GenerationStatus>;
   clearError: () => void;
 }
@@ -83,10 +98,31 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  startGeneration: async (jobId: string, chapters: number[]) => {
+  updateJob: async (id, data) => {
     set({ error: null });
     try {
-      await api.generate.start(jobId, { chapters });
+      const job = await api.jobs.update(id, data);
+      set((s) => ({
+        jobs: s.jobs.map((j) => (j.id === id ? job : j)),
+        currentJob: s.currentJob?.id === id ? { ...s.currentJob, ...job } : s.currentJob,
+      }));
+      return job;
+    } catch (e: unknown) {
+      set({ error: formatError(e) });
+      throw e;
+    }
+  },
+
+  startGeneration: async (jobId, chapters, options = {}) => {
+    set({ error: null });
+    try {
+      await api.generate.start(jobId, {
+        chapters,
+        style: options.style,
+        formats: options.formats,
+        skip_humanize: options.skip_humanize,
+        skip_review: options.skip_review,
+      });
     } catch (e: unknown) {
       set({ error: formatError(e) });
       throw e;

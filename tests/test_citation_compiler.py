@@ -4,6 +4,8 @@ import pytest
 
 from src.writers.citation_compiler import (
     compile_citations,
+    replace_inline_citations,
+    format_reference_list,
     _format_inline,
     _format_apa,
     _format_mla,
@@ -50,25 +52,26 @@ def _make_citations():
 
 
 class TestCompileCitations:
-    def test_appends_reference_list(self):
+    def test_replaces_inline_and_appends_references(self):
         citations = _make_citations()
-        text = "Recent studies show that AI is useful."
+        text = "Recent studies show that AI is useful {cite_001}; {cite_002}."
         result = compile_citations(text, citations, style="apa")
         assert "References" in result
         assert "Deep Learning" in result
         assert "AI Diagnostics Review" in result
-        assert "Machine Learning" in result
+        assert "Smith" in result
+        assert "Johnson" in result
 
-    def test_preserves_original_text(self):
+    def test_preserves_text_without_placeholders(self):
         citations = _make_citations()
-        text = "This is my (Smith, 2023) citation."
+        text = "This is my existing (Smith, 2023) citation."
         result = compile_citations(text, citations, style="apa")
-        assert result.startswith("This is my (Smith, 2023) citation.")
+        assert result.startswith("This is my existing (Smith, 2023) citation.")
         assert "References" in result
 
     def test_includes_all_citations_in_references(self):
         citations = _make_citations()
-        text = "Some text with no inline citations."
+        text = "Some text with {cite_001} inline citation."
         result = compile_citations(text, citations, style="apa")
         assert "References" in result
         assert "Deep Learning" in result
@@ -82,10 +85,49 @@ class TestCompileCitations:
 
     def test_different_styles(self):
         citations = _make_citations()
-        text = "Test text."
+        text = "Test text with {cite_001}."
         for style in ["apa", "mla", "chicago", "ieee"]:
             result = compile_citations(text, citations, style=style)
             assert "References" in result
+
+
+class TestReplaceInlineCitations:
+    def test_apa_single_placeholder(self):
+        citations = _make_citations()
+        text = "AI is useful {cite_002}."
+        result = replace_inline_citations(text, citations, style="apa")
+        assert "(Johnson, 2022)" in result
+        assert "{cite_002}" not in result
+
+    def test_multiple_placeholders(self):
+        citations = _make_citations()
+        text = "Studies show {cite_001}; {cite_002}."
+        result = replace_inline_citations(text, citations, style="apa")
+        assert "Smith et al." in result
+        assert "Johnson" in result
+        assert "{cite_" not in result
+
+    def test_unknown_placeholder_unchanged(self):
+        citations = _make_citations()
+        text = "Unknown {cite_999}."
+        result = replace_inline_citations(text, citations, style="apa")
+        assert "{cite_999}" in result
+
+    def test_square_bracket_placeholders(self):
+        citations = _make_citations()
+        text = "Leaked [cite_001] marker."
+        result = replace_inline_citations(text, citations, style="apa")
+        assert "{cite_001}" not in result
+        assert "[cite_001]" not in result
+        assert "Smith" in result
+
+
+class TestFormatReferenceList:
+    def test_returns_reference_section(self):
+        citations = _make_citations()
+        result = format_reference_list(citations, style="apa")
+        assert "References" in result
+        assert "Deep Learning" in result
 
 
 class TestFormatInline:

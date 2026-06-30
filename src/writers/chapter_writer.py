@@ -115,11 +115,13 @@ Available citations:
 FORBIDDEN phrases: {forbidden_text}
 
 IMPORTANT CITATION FORMAT:
-Use (Author, Year) format for all citations. Examples:
-- Single author: (Smith, 2024)
-- Two authors: (Smith & Jones, 2023)
-- Three or more: (Smith et al., 2024)
-- Multiple sources: (Smith, 2024; Jones, 2023)
+Use placeholder citations in the format {cite_XXX} where XXX is the citation ID.
+Examples:
+- Single source: {cite_001}
+- Multiple sources: {cite_001}; {cite_002}
+- Do NOT use (Author, Year) inline citations
+- Do NOT use [cite_XXX] square brackets
+- The compiler will replace {cite_XXX} with (Author, Year) later
 
 Write the section now. Start directly with the section heading ({sid} {title})."""
 

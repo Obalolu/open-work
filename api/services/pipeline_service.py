@@ -28,10 +28,30 @@ from src.reviewers.fact_checker import fact_check
 from src.reviewers.style_checker import review_style
 from src.router.prompt_loader import load_base_prompt, load_chapter_template, load_style_template
 from src.writers.chapter_writer import write_chapter
-from src.writers.citation_compiler import compile_citations
+from src.writers.citation_compiler import (
+    compile_citations,
+    format_reference_list,
+    replace_inline_citations,
+)
 
 _active_runs: dict[str, threading.Thread] = {}
 _run_lock = threading.Lock()
+
+
+def _run_async(coro):
+    """Run a coroutine in a new event loop and close it."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _phase_progress(chapter_index: int, total_chapters: int, phase_index: int, total_phases: int) -> int:
+    """Compute overall progress (0-100) based on chapter and phase position."""
+    chapter_share = 100 / max(total_chapters, 1)
+    phase_share = chapter_share / max(total_phases, 1)
+    return int(chapter_index * chapter_share + phase_index * phase_share)
 
 
 def start_generation(
@@ -39,6 +59,7 @@ def start_generation(
     job_id: str,
     chapter_numbers: list[int],
     style_file: str,
+    output_formats: list[str],
     skip_humanize: bool,
     skip_review: bool,
 ) -> str:
@@ -54,7 +75,7 @@ def start_generation(
 
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(run.id, job_id, chapter_numbers, style_file, skip_humanize, skip_review),
+        args=(run.id, job_id, chapter_numbers, style_file, output_formats, skip_humanize, skip_review),
         daemon=True,
     )
     with _run_lock:
@@ -83,6 +104,7 @@ def _run_pipeline(
     job_id: str,
     chapter_numbers: list[int],
     style_file: str,
+    output_formats: list[str],
     skip_humanize: bool,
     skip_review: bool,
 ):
@@ -115,6 +137,7 @@ def _run_pipeline(
 
         all_chapter_texts: list[str] = []
         total_chapters = len(chapter_numbers)
+        citation_style = job_config.get("citation_style", "apa")
 
         for idx, ch_num in enumerate(sorted(chapter_numbers)):
             ch_index = ch_num - 1
@@ -123,19 +146,22 @@ def _run_pipeline(
 
             ch_config = chapter_configs[ch_index]
             ch_name = ch_config.get("name", f"Chapter {ch_num}")
+            total_phases = 7 if not skip_humanize else 5
 
+            def _progress(phase_index: int) -> int:
+                return _phase_progress(idx, total_chapters, phase_index, total_phases)
+
+            # Phase 1: Research
             _update_run(
                 db, run_id,
                 phase="research",
-                progress=int((idx / total_chapters) * 100),
+                progress=_progress(0),
                 message=f"Researching Chapter {ch_num}: {ch_name}...",
                 chapter_number=ch_num,
             )
 
             topic = job_config.get("topic", "research topic")
             research_queries = _extract_research_queries(ch_config, topic)
-            _update_run(db, run_id, message=f"Researching Chapter {ch_num}: {ch_name} (queries: {len(research_queries)})...")
-
             all_papers: list[dict] = []
             try:
                 with CitationResearcher() as researcher:
@@ -157,7 +183,9 @@ def _run_pipeline(
                                     "api_source": c.api_source,
                                 }
                                 key = paper.get("doi") or paper.get("url") or paper.get("title", "")
-                                if key and key not in {p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers}:
+                                if key and key not in {
+                                    p.get("doi") or p.get("url") or p.get("title", "") for p in all_papers
+                                }:
                                     all_papers.append(paper)
                             logger.info(f"Research query '{query[:40]}...' returned {len(citations)} papers")
                         except Exception as query_err:
@@ -177,18 +205,11 @@ def _run_pipeline(
                 for s in ch_config.get("sections", [])
                 if s.get("instructions")
             }
-            loop = asyncio.new_event_loop()
-            try:
-                research = loop.run_until_complete(
-                    summarize_papers(all_papers, section_instructions or None)
-                )
-            finally:
-                loop.close()
+            research = _run_async(summarize_papers(all_papers, section_instructions or None))
 
-            _update_run(db, run_id, phase="writing", message=f"Writing Chapter {ch_num}...")
-
-            loop = asyncio.new_event_loop()
-            chapter_text = loop.run_until_complete(
+            # Phase 2: Writing
+            _update_run(db, run_id, phase="writing", progress=_progress(1), message=f"Writing Chapter {ch_num}...")
+            chapter_text = _run_async(
                 write_chapter(
                     base_prompt=base_prompt,
                     chapter_config=ch_config,
@@ -198,47 +219,55 @@ def _run_pipeline(
                     previous_chapters=all_chapter_texts if all_chapter_texts else None,
                 )
             )
-            loop.close()
 
+            # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
+            _update_run(db, run_id, phase="writing", progress=_progress(2), message=f"Formatting citations for Chapter {ch_num}...")
+            chapter_text = replace_inline_citations(chapter_text, research.citations, citation_style)
+
+            # Phase 4: Pre-humanization review
             if not skip_review:
-                _update_run(db, run_id, phase="review", message=f"Reviewing Chapter {ch_num}...")
-                loop = asyncio.new_event_loop()
-                style_review = loop.run_until_complete(
-                    review_style(chapter_text, ch_config, style_config)
-                )
-                fact_result = loop.run_until_complete(
-                    fact_check(chapter_text, research.citations)
-                )
-                loop.close()
-                avg_score = (style_review.score + fact_result.score) // 2
+                _update_run(db, run_id, phase="review", progress=_progress(2), message=f"Pre-reviewing Chapter {ch_num}...")
+                style_review = _run_async(review_style(chapter_text, ch_config, style_config))
+                fact_result = _run_async(fact_check(chapter_text, research.citations))
+                pre_score = (style_review.score + fact_result.score) // 2
             else:
-                avg_score = 75
+                pre_score = 75
 
+            # Phase 5: Humanize
             if not skip_humanize:
-                _update_run(db, run_id, phase="humanize", message=f"Humanizing Chapter {ch_num}...")
-                loop = asyncio.new_event_loop()
-                humanize_result = loop.run_until_complete(
-                    run_humanize_pipeline(chapter_text, intensity="medium")
-                )
-                loop.close()
+                _update_run(db, run_id, phase="humanize", progress=_progress(3), message=f"Humanizing Chapter {ch_num}...")
+                humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="medium"))
                 chapter_text = humanize_result.final_text
 
-            detection = detect_ai_text(chapter_text)
-            if not detection.pass_quality and detection.score > 60 and not skip_humanize:
-                _update_run(db, run_id, message=f"Re-humanizing Chapter {ch_num} (AI score high)...")
-                loop = asyncio.new_event_loop()
-                humanize_result = loop.run_until_complete(
-                    run_humanize_pipeline(chapter_text, intensity="aggressive")
-                )
-                loop.close()
-                chapter_text = humanize_result.final_text
+                # Phase 6: Post-humanization review
+                if not skip_review:
+                    _update_run(db, run_id, phase="review", progress=_progress(4), message=f"Post-reviewing Chapter {ch_num}...")
+                    style_review = _run_async(review_style(chapter_text, ch_config, style_config))
+                    fact_result = _run_async(fact_check(chapter_text, research.citations))
+                    post_score = (style_review.score + fact_result.score) // 2
+                else:
+                    post_score = pre_score
 
-            chapter_text = compile_citations(
-                chapter_text, research.citations, job_config.get("citation_style", "apa")
-            )
+                # AI detection + optional re-humanize
+                detection = detect_ai_text(chapter_text)
+                if not detection.pass_quality and detection.score > 60:
+                    _update_run(db, run_id, phase="humanize", progress=_progress(5), message=f"Re-humanizing Chapter {ch_num} (AI score high)...")
+                    humanize_result = _run_async(run_humanize_pipeline(chapter_text, intensity="aggressive"))
+                    chapter_text = humanize_result.final_text
+                    detection = detect_ai_text(chapter_text)
+            else:
+                post_score = pre_score
+                detection = detect_ai_text(chapter_text)
 
-            _update_run(db, run_id, phase="export", message=f"Exporting Chapter {ch_num}...")
-            export_chapter(chapter_text, job_id, ch_num, ["md", "docx", "pdf"])
+            avg_score = post_score if not skip_review else pre_score
+
+            # Phase 7: Append reference list and export
+            _update_run(db, run_id, phase="export", progress=_progress(6), message=f"Exporting Chapter {ch_num}...")
+            refs = format_reference_list(research.citations, citation_style)
+            if refs:
+                chapter_text = chapter_text.rstrip() + "\n\n---\n\n" + refs
+
+            export_chapter(chapter_text, job_id, ch_num, output_formats or ["md"])
 
             ch_db = (
                 db.query(Chapter)

@@ -35,10 +35,23 @@ export const api = {
       paper_type?: string;
       citation_style?: string;
       target_audience?: string;
-      chapters?: { name: string }[];
+      research_queries?: string[];
+      chapters?: { name: string; template?: string }[];
     }) =>
       request<Job>("/api/jobs", {
         method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: {
+      topic?: string;
+      paper_type?: string;
+      citation_style?: string;
+      target_audience?: string;
+      research_queries?: string[];
+      chapters?: { name: string; template?: string }[];
+    }) =>
+      request<Job>(`/api/jobs/${id}`, {
+        method: "PUT",
         body: JSON.stringify(data),
       }),
     delete: (id: string) =>

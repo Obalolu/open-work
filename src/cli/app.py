@@ -27,10 +27,14 @@ from src.config import (
 from src.router.prompt_loader import (
     load_chapter_template, load_style_template, load_base_prompt,
 )
-from src.research.semantic_scholar import search_papers
-from src.research.summarizer import summarize_papers, format_citation_database
+from src.research.orchestrator import CitationResearcher
+from src.research.summarizer import summarize_papers
 from src.writers.chapter_writer import write_chapter
-from src.writers.citation_compiler import compile_citations
+from src.writers.citation_compiler import (
+    compile_citations,
+    format_reference_list,
+    replace_inline_citations,
+)
 from src.reviewers.style_checker import review_style
 from src.reviewers.fact_checker import fact_check
 from src.reviewers.ai_detector import detect_ai_text
@@ -242,24 +246,45 @@ async def _run_generation(
         # Research phase
         show_info("Phase 1: Researching...")
         topic = job_config.get("topic", "research topic")
-        research_queries = _extract_research_queries(ch_config)
-        all_papers = []
-        for query in research_queries[:5]:  # limit queries
-            try:
-                papers = await search_papers(query, max_results=10)
-                all_papers.extend(papers)
-            except Exception as e:
-                show_warning(f"Research query failed: {e}")
+        research_queries = _extract_research_queries(ch_config, topic)
+        unique_papers: list[dict] = []
+        try:
+            with CitationResearcher() as researcher:
+                for query in research_queries[:3]:
+                    try:
+                        citations = researcher.research(query)
+                        for c in citations:
+                            paper = {
+                                "title": c.title,
+                                "authors": c.authors,
+                                "year": c.year,
+                                "doi": c.doi,
+                                "url": c.paper_url,
+                                "journal": c.venue,
+                                "abstract": c.abstract_summary,
+                                "source_type": c.source_type,
+                                "citation_count": c.citation_count,
+                                "confidence": c.confidence,
+                                "api_source": c.api_source,
+                            }
+                            key = paper.get("doi") or paper.get("url") or paper.get("title", "")
+                            if key and key not in {
+                                p.get("doi") or p.get("url") or p.get("title", "") for p in unique_papers
+                            }:
+                                unique_papers.append(paper)
+                    except Exception as e:
+                        show_warning(f"Research query failed: {e}")
+        except Exception as e:
+            show_error(f"Research phase failed: {e}")
+            raise
 
-        # Deduplicate by paper_id
-        seen = set()
-        unique_papers = []
-        for p in all_papers:
-            if p.paper_id not in seen:
-                seen.add(p.paper_id)
-                unique_papers.append(p)
+        if not unique_papers:
+            show_error(
+                "Research returned no papers. Check API keys and internet connectivity."
+            )
+            raise typer.Exit(1)
 
-        show_research_progress(len(unique_papers), len(research_queries[:5]))
+        show_research_progress(len(unique_papers), len(research_queries[:3]))
 
         # Summarize
         section_instructions = {
@@ -284,32 +309,25 @@ async def _run_generation(
         show_writing_progress(ch_num, len(chapters), word_count)
         results_summary["total_words"] += word_count
 
-        # Review phase
-        if not skip_review:
-            show_info("Phase 3: Reviewing...")
+        # Replace {cite_XXX} placeholders with inline (Author, Year) citations
+        citation_style = job_config.get("citation_style", "apa")
+        chapter_text = replace_inline_citations(chapter_text, research.citations, citation_style)
 
+        # Pre-humanization review
+        if not skip_review:
+            show_info("Phase 3: Pre-reviewing...")
             style_review = await review_style(chapter_text, ch_config, style_config)
-            show_review_result(
-                "Style", style_review.score,
-                style_review.pass_quality, len(style_review.issues)
-            )
+            show_review_result("Style (pre)", style_review.score, style_review.pass_quality, len(style_review.issues))
             if style_review.issues:
                 show_issues_table([
                     {"type": i.issue_type, "severity": i.severity, "description": i.description}
                     for i in style_review.issues[:10]
-                ], "Style Issues")
-
+                ], "Style Issues (pre)")
             fact_result = await fact_check(chapter_text, research.citations)
-            show_review_result(
-                "Fact-check", fact_result.score,
-                fact_result.pass_quality, len(fact_result.issues)
-            )
-
-            avg_score = (style_review.score + fact_result.score) // 2
-            results_summary["scores"].append(avg_score)
+            show_review_result("Fact-check (pre)", fact_result.score, fact_result.pass_quality, len(fact_result.issues))
+            pre_score = (style_review.score + fact_result.score) // 2
         else:
-            avg_score = 75  # default if skipped
-            results_summary["scores"].append(avg_score)
+            pre_score = 75
 
         # Humanize phase
         if not skip_humanize:
@@ -322,23 +340,41 @@ async def _run_generation(
                 humanize_result.final_length,
             )
 
-        # AI detection check
-        show_info("Phase 5: Detecting...")
-        detection = detect_ai_text(chapter_text)
-        show_detection_result(detection.score, detection.pass_quality, 50.0)
-        if not detection.pass_quality and detection.flagged_phrases:
-            show_detection_details(detection.details, detection.flagged_phrases)
+            # Post-humanization review
+            if not skip_review:
+                show_info("Phase 5: Post-reviewing...")
+                style_review = await review_style(chapter_text, ch_config, style_config)
+                show_review_result("Style (post)", style_review.score, style_review.pass_quality, len(style_review.issues))
+                fact_result = await fact_check(chapter_text, research.citations)
+                show_review_result("Fact-check (post)", fact_result.score, fact_result.pass_quality, len(fact_result.issues))
+                post_score = (style_review.score + fact_result.score) // 2
+            else:
+                post_score = pre_score
 
-        # If detection fails badly, do one more humanize pass
-        if not detection.pass_quality and detection.score > 60 and not skip_humanize:
-            show_info("Re-running humanizer (detection score too high)...")
-            humanize_result = await run_humanize_pipeline(chapter_text, intensity="aggressive")
-            chapter_text = humanize_result.final_text
+            # AI detection check
+            show_info("Phase 6: Detecting...")
             detection = detect_ai_text(chapter_text)
             show_detection_result(detection.score, detection.pass_quality, 50.0)
+            if not detection.pass_quality and detection.flagged_phrases:
+                show_detection_details(detection.details, detection.flagged_phrases)
 
-        # Compile citations
-        chapter_text = compile_citations(chapter_text, research.citations, job_config.get("citation_style", "apa"))
+            if not detection.pass_quality and detection.score > 60:
+                show_info("Re-running humanizer (detection score too high)...")
+                humanize_result = await run_humanize_pipeline(chapter_text, intensity="aggressive")
+                chapter_text = humanize_result.final_text
+                detection = detect_ai_text(chapter_text)
+                show_detection_result(detection.score, detection.pass_quality, 50.0)
+        else:
+            post_score = pre_score
+            detection = detect_ai_text(chapter_text)
+
+        avg_score = post_score if not skip_review else pre_score
+        results_summary["scores"].append(avg_score)
+
+        # Append reference list
+        refs = format_reference_list(research.citations, citation_style)
+        if refs:
+            chapter_text = chapter_text.rstrip() + "\n\n---\n\n" + refs
 
         # Export
         show_info("Phase 6: Exporting...")
@@ -352,6 +388,7 @@ async def _run_generation(
             show_export_result(fmt, path)
 
         show_chapter_complete(ch_num, len(chapters), avg_score)
+        results_summary["chapters"] += 1
         all_chapter_texts.append(chapter_text)
 
     # Final summary
@@ -408,18 +445,22 @@ def _get_chapter_configs(job_config: dict[str, Any]) -> list[dict[str, Any]]:
     return configs
 
 
-def _extract_research_queries(ch_config: dict[str, Any]) -> list[str]:
+def _extract_research_queries(ch_config: dict[str, Any], topic: str = "") -> list[str]:
     """Extract research queries from chapter config sections."""
     queries: list[str] = []
-    topic = ""  # Will be set from job_config in the caller
 
     for section in ch_config.get("sections", []):
-        title = section.get("title", "")
-        instructions = section.get("instructions", "")
-        if title:
-            queries.append(f"{title} {instructions}".strip())
+        title = (section.get("title", "") or "").strip()
+        instructions = (section.get("instructions", "") or "").strip()
+        if title.lower() in ("section 1", "section", "") and not instructions:
+            continue
+        if title or instructions:
+            queries.append(f"{topic} {title} {instructions}".strip())
 
-    return queries if queries else [ch_config.get("name", "general research")]
+    if not queries:
+        fallback = topic or ch_config.get("name", "general research") or "general research"
+        queries.append(fallback)
+    return queries
 
 
 @app.command()

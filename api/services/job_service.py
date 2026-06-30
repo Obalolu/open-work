@@ -38,7 +38,7 @@ def create_job(db: Session, data: JobCreate) -> Job:
         chapter = Chapter(
             job_id=job.id,
             chapter_number=i,
-            name=ch.get("name", f"Chapter {i}"),
+            name=ch.name or f"Chapter {i}",
             status="pending",
         )
         db.add(chapter)
@@ -63,8 +63,32 @@ def update_job(db: Session, job_id: str, data: JobUpdate) -> Job | None:
     job = get_job(db, job_id)
     if not job:
         return None
-    for field, value in data.model_dump(exclude_unset=True).items():
+
+    # Update scalar fields directly
+    scalar_updates = data.model_dump(exclude_unset=True)
+    scalar_updates.pop("chapters", None)
+    scalar_updates.pop("research_queries", None)
+    for field, value in scalar_updates.items():
         setattr(job, field, value)
+
+    # Merge complex fields into config_json
+    config = json.loads(job.config_json or "{}")
+    if data.chapters is not None:
+        config["chapters"] = [ch.model_dump() for ch in data.chapters]
+        # Sync chapter rows: preserve existing, add new, remove extras
+        existing = {ch.chapter_number: ch for ch in db.query(Chapter).filter(Chapter.job_id == job_id).all()}
+        for i, ch_data in enumerate(data.chapters, 1):
+            if i in existing:
+                existing[i].name = ch_data.name or existing[i].name
+            else:
+                db.add(Chapter(job_id=job_id, chapter_number=i, name=ch_data.name or f"Chapter {i}", status="pending"))
+        for num in list(existing.keys()):
+            if num > len(data.chapters):
+                db.delete(existing[num])
+    if data.research_queries is not None:
+        config["research_queries"] = data.research_queries
+    job.config_json = json.dumps(config)
+
     db.commit()
     db.refresh(job)
     _sync_yaml(job)
@@ -161,6 +185,12 @@ def _sync_yaml(job: Job):
     jobs_dir.mkdir(parents=True, exist_ok=True)
     config = json.loads(job.config_json)
     config["name"] = job.id
+    # Ensure chapters are serialized as plain dicts with template references
+    if "chapters" in config:
+        config["chapters"] = [
+            ch.model_dump() if hasattr(ch, "model_dump") else dict(ch)
+            for ch in config["chapters"]
+        ]
     save_yaml(config, jobs_dir / f"{job.id}.yaml")
 
 

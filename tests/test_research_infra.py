@@ -287,16 +287,16 @@ class TestCitationCache:
         cache = CitationCache(tmp_path / "miss.json")
         assert cache.get("nonexistent") is None
 
-    def test_empty_results(self, tmp_path):
+    def test_empty_results_not_cached(self, tmp_path):
         cache = CitationCache(tmp_path / "empty.json")
         cache.set("no results query", [])
         loaded = CitationCache(tmp_path / "empty.json")
-        assert loaded.get("no results query") == []
+        assert loaded.get("no results query") is None
 
     def test_has(self, tmp_path):
         cache = CitationCache(tmp_path / "has.json")
         assert cache.has("test") is False
-        cache.set("test", [])
+        cache.set("test", [{"x": 1}])
         assert cache.has("test") is True
 
     def test_clear(self, tmp_path):
@@ -308,9 +308,15 @@ class TestCitationCache:
     def test_len(self, tmp_path):
         cache = CitationCache(tmp_path / "len.json")
         assert len(cache) == 0
-        cache.set("a", [])
-        cache.set("b", [])
+        cache.set("a", [{"x": 1}])
+        cache.set("b", [{"y": 2}])
         assert len(cache) == 2
+
+    def test_ttl_expiration(self, tmp_path):
+        cache = CitationCache(tmp_path / "ttl.json", ttl_seconds=0)
+        cache.set("test", [{"x": 1}])
+        assert cache.get("test") is None
+        assert cache.has("test") is False
 
 
 # === query_router.py tests ===

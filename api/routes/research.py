@@ -39,14 +39,28 @@ def get_research_sources(job_id: str, db: Session = Depends(get_db)):
     sources = []
     seen = set()
 
+    def _topic_match(key: str, topic: str) -> bool:
+        if not topic or not key:
+            return True
+        key_l = key.lower()
+        topic_l = topic.lower()
+        return topic_l in key_l or key_l in topic_l
+
     for key, entry in cache.items():
         papers = []
         if isinstance(entry, list):
             papers = entry
-            if topic and key != topic:
+            if topic and not _topic_match(key, topic):
                 continue
-        elif isinstance(entry, dict) and "papers" in entry:
-            papers = entry["papers"]
+        elif isinstance(entry, dict):
+            if "results" in entry:
+                papers = entry.get("results", [])
+                if topic and not _topic_match(key, topic):
+                    continue
+            elif "papers" in entry:
+                papers = entry["papers"]
+            else:
+                continue
         else:
             continue
 

@@ -11,16 +11,17 @@ from src.utils.llm_client import call_llm
 ENTROPY_SYSTEM_PROMPT = """You are a style diversification specialist. Your task is to rewrite academic text to make it sound more natural and human-like, while preserving all citations and academic integrity.
 
 RULES:
-1. NEVER remove or change citation IDs ({cite_XXX} patterns)
-2. NEVER add unsupported claims
-3. Vary sentence lengths (mix short, medium, long)
-4. Replace AI-typical phrases with natural alternatives
-5. Use varied sentence openings (not all starting with "The" or "This")
-6. Add occasional natural constructions (em-dashes, parenthetical asides)
-7. Keep the academic tone — this is NOT casual rewriting
-8. Preserve all factual content and data
-9. Keep paragraph structure intact
-10. Do NOT add bullet points
+1. NEVER remove or change citation placeholders ({cite_XXX} patterns)
+2. NEVER remove or change inline citations in (Author, Year) format
+3. NEVER add unsupported claims
+4. Vary sentence lengths (mix short, medium, long)
+5. Replace AI-typical phrases with natural alternatives
+6. Use varied sentence openings (not all starting with "The" or "This")
+7. Add occasional natural constructions (em-dashes, parenthetical asides)
+8. Keep the academic tone — this is NOT casual rewriting
+9. Preserve all factual content and data
+10. Keep paragraph structure intact
+11. Do NOT add bullet points
 
 AI PHRASES TO REPLACE:
 - "furthermore" → "also", "and", "Plus"
@@ -70,7 +71,7 @@ async def humanize_text(
 
 {instruction}
 
-PRESERVE EXACTLY: All {{cite_XXX}} patterns, all statistics, all factual claims.
+PRESERVE EXACTLY: All {{cite_XXX}} patterns, all (Author, Year) inline citations, all statistics, all factual claims.
 
 Text to rewrite:
 ---
@@ -107,7 +108,7 @@ Fix:
 
 DO NOT:
 - Change the meaning or content
-- Remove or alter citations ({{cite_XXX}} patterns)
+- Remove or alter citations ({{cite_XXX}} or (Author, Year) patterns)
 - Add new content
 - Change the overall structure
 

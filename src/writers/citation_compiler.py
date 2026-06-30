@@ -1,4 +1,4 @@
-"""Citation compiler — replaces {cite_XXX} IDs with formatted citations."""
+"""Citation compiler — replaces {cite_XXX} placeholders with formatted citations."""
 
 from __future__ import annotations
 
@@ -16,24 +16,51 @@ def compile_citations(
     citations: list[Citation],
     style: str = "apa",
 ) -> str:
-    """Append a formatted reference list to the text.
-
-    The writer uses inline (Author, Year) citations, so no replacement is needed.
-    This function just appends a References section from the citation database.
+    """Replace {cite_XXX} placeholders and append a formatted reference list.
 
     Args:
-        text: Text with inline (Author, Year) citations.
+        text: Text with {cite_XXX} placeholders.
         citations: List of Citation objects.
         style: Citation style ("apa", "mla", "chicago", "ieee").
 
     Returns:
-        Text with a reference list appended.
+        Text with inline citations and a reference list.
+    """
+    text = replace_inline_citations(text, citations, style)
+    refs = format_reference_list(citations, style)
+    if refs:
+        return text.rstrip() + "\n\n---\n\n" + refs
+    return text
+
+
+def replace_inline_citations(text: str, citations: list[Citation], style: str = "apa") -> str:
+    """Replace {cite_XXX} placeholders with formatted inline citations.
+
+    Also handles stray [cite_XXX] markers from leaked summarizer context.
     """
     if not citations:
         return text
 
-    ref_list = _build_reference_list(citations, style)
-    return text.rstrip() + "\n\n---\n\n" + ref_list
+    cite_map = {c.cite_id: c for c in citations}
+
+    def _replace(match: re.Match) -> str:
+        cite_id = f"cite_{match.group(1)}"
+        citation = cite_map.get(cite_id)
+        if not citation:
+            return match.group(0)
+        return _format_inline(citation, style)
+
+    text = CITE_PATTERN.sub(_replace, text)
+    # Also replace any [cite_XXX] markers that leaked into the draft
+    text = re.sub(r'\[cite_(\d{3})\]', _replace, text)
+    return text
+
+
+def format_reference_list(citations: list[Citation], style: str = "apa") -> str:
+    """Build a formatted reference list from citations."""
+    if not citations:
+        return ""
+    return _build_reference_list(citations, style)
 
 
 def _format_inline(citation: Citation, style: str) -> str:

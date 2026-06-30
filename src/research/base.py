@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from src.research.backpressure import get_backpressure_manager
+from src.research.retry import get_citation_circuit_breaker, CircuitOpenError
 
 # Lazy-loaded proxy manager (initialized on first use)
 _PROXY_MANAGER = None
@@ -128,12 +129,17 @@ class BaseAPIClient(ABC):
         self.session.headers.update(BROWSER_HEADERS)
 
     def _rate_limit_wait(self) -> None:
-        """Token-bucket rate limiting — sleep if needed."""
+        """Token-bucket rate limiting plus global backpressure delay."""
         now = time.time()
         elapsed = now - self.last_request_time
-        if elapsed < self.min_interval:
-            sleep_time = self.min_interval - elapsed
-            time.sleep(sleep_time)
+        wait_time = self.min_interval - elapsed
+        try:
+            bp_delay = get_backpressure_manager().get_recommended_delay()
+            wait_time = max(wait_time, bp_delay)
+        except Exception:
+            bp_delay = 0.0
+        if wait_time > 0:
+            time.sleep(wait_time)
         self.last_request_time = time.time()
 
     def _make_request(
@@ -151,6 +157,15 @@ class BaseAPIClient(ABC):
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         bp = get_backpressure_manager()
+
+        # Check circuit breaker before attempting requests
+        breaker = get_citation_circuit_breaker()
+        if not breaker.allow_request():
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Circuit breaker OPEN for {self.api_type}; skipping request"
+            )
+            return None
 
         for attempt in range(self.max_retries):
             self._rate_limit_wait()
@@ -199,6 +214,7 @@ class BaseAPIClient(ABC):
                     pm.report_usage(proxy_str, success=response.status_code == 200, latency_ms=elapsed_ms)
 
                 if response.status_code == 200:
+                    breaker.record_success()
                     return response.json()
 
                 if response.status_code == 404:
@@ -233,6 +249,7 @@ class BaseAPIClient(ABC):
                 logging.getLogger(__name__).debug(
                     f"HTTP {response.status_code} from {self.api_type}: {url}"
                 )
+                breaker.record_failure(Exception(f"HTTP {response.status_code}"))
                 return None
 
             except requests.Timeout:
@@ -259,6 +276,7 @@ class BaseAPIClient(ABC):
         logging.getLogger(__name__).debug(
             f"All {self.max_retries} retries exhausted for {self.api_type}: {url}"
         )
+        breaker.record_failure(Exception(f"All retries exhausted for {self.api_type}"))
         return None
 
     @abstractmethod

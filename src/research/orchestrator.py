@@ -66,7 +66,7 @@ class CitationResearcher:
         enable_crossref: bool = True,
         enable_arxiv: bool = True,
         enable_smart_routing: bool = True,
-        cache_file: str = ".citation_cache.json",
+        cache_file: str | None = None,
         verbose: bool = False,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> None:

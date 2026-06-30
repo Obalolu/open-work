@@ -35,6 +35,7 @@ export interface ChapterDetail extends ChapterSummary {
 export interface GenerateRequest {
   chapters: number[];
   style?: string;
+  formats?: string[];
   skip_humanize?: boolean;
   skip_review?: boolean;
 }
