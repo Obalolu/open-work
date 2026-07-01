@@ -58,50 +58,57 @@ export interface TipTapEditorProps {
   className?: string;
   onSave?: (markdown: string) => Promise<void> | void;
   onCancel?: () => void;
+  onStartEdit?: () => void;
   autosaveMs?: number;
 }
 
-const extensions = [
-  StarterKit.configure({
-    codeBlock: {
-      HTMLAttributes: { class: "tiptap-codeblock" },
-    },
-  }),
-  Placeholder.configure({ placeholder: "Start writing your chapter…" }),
-  Link.configure({ openOnClick: false, autolink: true }),
-  Highlight,
-  TaskList,
-  TaskItem.configure({ nested: true }),
-  Typography,
-  CharacterCount,
-  Table.configure({ resizable: true }),
-  TableRow,
-  TableHeader,
-  TableCell,
-  Subscript,
-  Superscript,
-];
+const DEFAULT_PLACEHOLDER = "Start writing your chapter…";
+
+function buildExtensions(placeholder: string) {
+  return [
+    StarterKit.configure({
+      codeBlock: {
+        HTMLAttributes: { class: "tiptap-codeblock" },
+      },
+    }),
+    Placeholder.configure({ placeholder }),
+    Link.configure({ openOnClick: false, autolink: true }),
+    Highlight,
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Typography,
+    CharacterCount,
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Subscript,
+    Superscript,
+  ];
+}
 
 export function TipTapEditor({
   initialContent,
   editable = false,
-  placeholder = "Start writing…",
+  placeholder = DEFAULT_PLACEHOLDER,
   className,
   onSave,
   onCancel,
+  onStartEdit,
   autosaveMs = 1500,
 }: TipTapEditorProps) {
-  const [editing, setEditing] = React.useState(editable);
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [dirty, setDirty] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const extensions = React.useMemo(() => buildExtensions(placeholder), [placeholder]);
+
   const editor = useEditor({
     extensions,
     content: initialContent,
-    editable: editing,
+    editable: editable,
     immediatelyRender: false,
     onUpdate: () => {
       setDirty(true);
@@ -138,6 +145,17 @@ export function TipTapEditor({
     }
   }, [editor, onSave]);
 
+  // Keep the editor's editability in sync with the `editable` prop so an
+  // external Edit / Cancel toggle actually flips the ProseMirror into
+  // editable mode (or back to read-only).
+  React.useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(editable);
+    if (editable) {
+      requestAnimationFrame(() => editor.commands.focus("end"));
+    }
+  }, [editor, editable]);
+
   React.useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -145,13 +163,17 @@ export function TipTapEditor({
   }, []);
 
   const startEdit = () => {
-    setEditing(true);
+    if (onStartEdit) {
+      onStartEdit();
+      return;
+    }
+    // No-op when the editor controls its own editability; the parent is
+    // expected to flip the `editable` prop. Fall back to just focusing.
     requestAnimationFrame(() => editor?.commands.focus("end"));
   };
 
   const cancelEdit = () => {
     editor?.commands.setContent(initialContent);
-    setEditing(false);
     setDirty(false);
     setError(null);
     onCancel?.();
@@ -168,7 +190,7 @@ export function TipTapEditor({
 
   return (
     <div className={cn("space-y-3", className)}>
-      {editing ? (
+      {editable ? (
         <div className="space-y-2">
           <Toolbar editor={editor} />
           <EditorContent editor={editor} className="tiptap-content" />

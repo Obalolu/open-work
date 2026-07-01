@@ -26,6 +26,7 @@ export function AnimatedNumber({
   const motionValue = useMotionValue(0);
   const rounded = useTransform(motionValue, (latest) => format(Math.round(latest)));
   const [display, setDisplay] = React.useState(format(0));
+  const prevRef = React.useRef(0);
 
   React.useEffect(() => {
     const unsub = rounded.on("change", (v) => setDisplay(v));
@@ -35,12 +36,15 @@ export function AnimatedNumber({
   React.useEffect(() => {
     if (!inView) return;
     if (reduced) {
+      prevRef.current = value;
       setDisplay(format(value));
       return;
     }
-    const start = performance.now();
-    const from = 0;
+    const from = prevRef.current;
     const to = value;
+    if (from === to) return;
+    prevRef.current = to;
+    const start = performance.now();
     let raf: number;
     const tick = (now: number) => {
       const elapsed = (now - start) / 1000;

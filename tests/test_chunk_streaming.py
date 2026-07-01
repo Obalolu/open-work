@@ -1,0 +1,217 @@
+"""Tests for SSE chunk events from the pipeline during writing/humanizing."""
+
+from __future__ import annotations
+
+import json
+import queue
+import threading
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from api.main import app
+from api.models import GenerationRun, Job
+from api.services import pipeline_service
+
+
+@pytest.fixture
+def client(test_db):
+    return TestClient(app)
+
+
+def test_subscribe_and_publish_round_trip():
+    run_id = "run-1"
+    q = pipeline_service.subscribe_to_run(run_id)
+    pipeline_service._publish_event(run_id, {"type": "chunk", "text": "hello"})
+    pipeline_service._publish_event(run_id, {"type": "complete"})
+    received = []
+    while True:
+        try:
+            received.append(q.get_nowait())
+        except queue.Empty:
+            break
+    assert received[0] == {"type": "chunk", "text": "hello"}
+    assert received[-1] == {"type": "complete"}
+    pipeline_service.unsubscribe_from_run(run_id, q)
+
+
+def test_subscribe_does_not_cross_runs():
+    a = pipeline_service.subscribe_to_run("a")
+    b = pipeline_service.subscribe_to_run("b")
+    pipeline_service._publish_event("a", {"type": "chunk", "text": "A"})
+    pipeline_service._publish_event("b", {"type": "chunk", "text": "B"})
+    a_event = a.get_nowait()
+    b_event = b.get_nowait()
+    assert a_event["text"] == "A"
+    assert b_event["text"] == "B"
+    pipeline_service.unsubscribe_from_run("a", a)
+    pipeline_service.unsubscribe_from_run("b", b)
+
+
+def test_publish_chunk_helper_shape():
+    run_id = "run-helper"
+    q = pipeline_service.subscribe_to_run(run_id)
+    try:
+        pipeline_service._publish_chunk(run_id, 1, "writing", "alpha ")
+        pipeline_service._publish_chunk(run_id, 1, "humanize", "beta")
+        first = q.get(timeout=2)
+        second = q.get(timeout=2)
+        assert first["type"] == "chunk"
+        assert first["chapter"] == 1
+        assert first["phase"] == "writing"
+        assert first["text"] == "alpha "
+        assert second["phase"] == "humanize"
+        assert second["text"] == "beta"
+    finally:
+        pipeline_service.unsubscribe_from_run(run_id, q)
+
+
+def test_drain_stream_concatenates_and_invokes_callback():
+    pieces: list[str] = []
+
+    async def _agen():
+        for chunk in ("Hello, ", "world", "!"):
+            yield chunk
+
+    result = pipeline_service._drain_stream(_agen(), on_chunk=pieces.append)
+    assert result == "Hello, world!"
+    assert pieces == ["Hello, ", "world", "!"]
+
+
+def test_drain_stream_aborts_on_cancel_check():
+    pieces: list[str] = []
+    cancel = threading.Event()
+
+    async def _agen():
+        for chunk in ("alpha ", "beta ", "gamma ", "delta"):
+            yield chunk
+
+    def _should_cancel() -> bool:
+        # Cancel after the second chunk arrives.
+        return len(pieces) >= 2
+
+    result = pipeline_service._drain_stream(
+        _agen(), on_chunk=pieces.append, cancel_check=_should_cancel
+    )
+    # Drain stopped after the second chunk; the rest were not consumed.
+    assert pieces == ["alpha ", "beta "]
+    assert result == "alpha beta "
+
+
+def test_drain_stream_full_drain_when_cancel_check_always_false():
+    pieces: list[str] = []
+
+    async def _agen():
+        for chunk in ("one", "two", "three"):
+            yield chunk
+
+    result = pipeline_service._drain_stream(
+        _agen(), on_chunk=pieces.append, cancel_check=lambda: False
+    )
+    assert result == "onetwothree"
+    assert pieces == ["one", "two", "three"]
+
+
+def test_chunk_event_published_via_set_chapter_status(test_db):
+    import api.models  # noqa: F401  -- ensure tables are registered
+
+    run_id = "run-chunk"
+    with test_db() as db:
+        run = GenerationRun(id=run_id, job_id="j1", phase="writing", progress=50)
+        db.add(run)
+        db.commit()
+
+    q = pipeline_service.subscribe_to_run(run_id)
+    try:
+        pipeline_service._set_chapter_status(
+            test_db(),
+            run_id,
+            1,
+            "writing",
+            60,
+            "halfway there",
+        )
+        evt = q.get(timeout=2)
+        assert evt["type"] == "chapter"
+        assert evt["chapter"] == 1
+        assert evt["status"] == "writing"
+    finally:
+        pipeline_service.unsubscribe_from_run(run_id, q)
+
+
+def test_stream_endpoint_serves_chunk_events(client, test_db):
+    """End-to-end: subscribe via SSE and confirm chunk events are forwarded."""
+    import api.models  # noqa: F401  -- ensure tables are registered
+
+    with test_db() as db:
+        job = Job(
+            id="job-sse",
+            topic="SSE chunk topic",
+            paper_type="literature_review",
+            citation_style="apa",
+            target_audience="graduate_students",
+            status="generating",
+            config_json="{}",
+        )
+        run = GenerationRun(
+            id="run-sse",
+            job_id="job-sse",
+            phase="writing",
+            progress=20,
+        )
+        db.add(job)
+        db.add(run)
+        db.commit()
+
+    # Pre-subscribe so the SSE handler picks up our publishes
+    q = pipeline_service.subscribe_to_run("run-sse")
+
+    # Handshake: signal once we've attached to the queue, then publish
+    attached = threading.Event()
+    done = threading.Event()
+
+    def _publisher():
+        attached.wait(timeout=2)
+        pipeline_service._publish_chunk(
+            "run-sse", 1, "writing", "Hello world"
+        )
+        pipeline_service._publish_event("run-sse", {"type": "complete"})
+        done.set()
+
+    threading.Thread(target=_publisher, daemon=True).start()
+
+    try:
+        with client.stream("GET", "/api/jobs/job-sse/generate/stream") as res:
+            assert res.status_code == 200
+            # Tell the publisher it can fire now (best effort — race-safe)
+            attached.set()
+            buffer = ""
+            saw_chunk = False
+            saw_complete = False
+            deadline = time.monotonic() + 5
+            for raw in res.iter_bytes():
+                if time.monotonic() > deadline:
+                    break
+                buffer += raw.decode("utf-8", errors="ignore")
+                for line in buffer.split("\n\n"):
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload:
+                        continue
+                    try:
+                        evt = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if evt.get("type") == "chunk" and evt.get("text") == "Hello world":
+                        saw_chunk = True
+                    if evt.get("type") == "complete":
+                        saw_complete = True
+                if saw_chunk and saw_complete:
+                    break
+        assert saw_chunk, "did not receive chunk event via SSE"
+        assert saw_complete, "did not receive complete event via SSE"
+    finally:
+        done.set()
+        pipeline_service.unsubscribe_from_run("run-sse", q)

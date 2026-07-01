@@ -113,6 +113,7 @@ export default function ResearchPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search title or author…"
                 className="pl-9"
+                data-shortcut-focus
               />
             </div>
             <select

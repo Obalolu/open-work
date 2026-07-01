@@ -50,13 +50,17 @@ def _run_async(coro):
         loop.close()
 
 
-def _consume_stream(
-    agen: Any, *, on_chunk: Any | None = None
+def _drain_stream(
+    agen: Any,
+    *,
+    on_chunk: Any | None = None,
+    cancel_check: Any | None = None,
 ) -> str:
-    """Drain an async generator, optionally invoking on_chunk(str) for each piece.
-
-    Returns the concatenated string. Runs the generator on a private event
-    loop so it is safe to call from the background pipeline thread.
+    """Drain an async generator of text chunks, optionally invoking
+    on_chunk(str) for each piece. Returns the concatenated string. If
+    `cancel_check` is provided, it is called between chunks; returning a
+    truthy value aborts the drain and returns the partial text seen so far.
+    Safe to call from the background pipeline thread.
     """
     pieces: list[str] = []
 
@@ -65,6 +69,8 @@ def _consume_stream(
             pieces.append(chunk)
             if on_chunk is not None:
                 on_chunk(chunk)
+            if cancel_check is not None and cancel_check():
+                break
         return "".join(pieces)
 
     return _run_async(_drain())
@@ -189,6 +195,14 @@ def _publish_event(run_id: str, event: dict[str, Any]) -> None:
         except queue.Full:
             # Drop event for slow consumers
             pass
+
+
+def _publish_chunk(run_id: str, chapter: int, phase: str, text: str) -> None:
+    """Publish a text chunk to all SSE subscribers for the given run."""
+    _publish_event(
+        run_id,
+        {"type": "chunk", "chapter": chapter, "phase": phase, "text": text},
+    )
 
 
 def _run_pipeline(
@@ -389,13 +403,10 @@ def _run_pipeline(
                 },
             )
 
-            def _on_write_chunk(chunk: str, *, _ch: int = ch_num) -> None:
-                _publish_event(
-                    run_id,
-                    {"type": "chunk", "chapter": _ch, "phase": "writing", "text": chunk},
-                )
+            def _on_write_chunk(chunk: str) -> None:
+                _publish_chunk(run_id, ch_num, "writing", chunk)
 
-            chapter_text = _consume_stream(
+            chapter_text = _drain_stream(
                 stream_write_chapter(
                     base_prompt=base_prompt,
                     chapter_config=ch_config,
@@ -405,6 +416,7 @@ def _run_pipeline(
                     previous_chapters=all_chapter_texts if all_chapter_texts else None,
                 ),
                 on_chunk=_on_write_chunk,
+                cancel_check=cancel_event.is_set,
             )
 
             # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
@@ -481,25 +493,29 @@ def _run_pipeline(
                     db.add(attempt)
                     db.commit()
 
-                def _on_humanize_chunk(chunk: str, *, _ch: int = ch_num) -> None:
-                    _publish_event(
-                        run_id,
-                        {
-                            "type": "chunk",
-                            "chapter": _ch,
-                            "phase": "humanize",
-                            "text": chunk,
-                        },
-                    )
+                def _on_humanize_chunk(chunk: str) -> None:
+                    _publish_chunk(run_id, ch_num, "humanize", chunk)
 
-                rewritten = _consume_stream(
+                # First humanize pass — measure AI score before, stream the
+                # rewrite, then measure the score after so we can record the
+                # actual delta in humanizer_attempts.
+                pre_humanize_score = detect_ai_text(chapter_text).score
+                rewritten = _drain_stream(
                     stream_humanize_text(
                         chapter_text,
                         intensity="medium",
                     ),
                     on_chunk=_on_humanize_chunk,
+                    cancel_check=cancel_event.is_set,
                 )
-                _record_attempt(chapter_text, rewritten, "medium", None, None)
+                post_humanize_score = detect_ai_text(rewritten).score
+                _record_attempt(
+                    chapter_text,
+                    rewritten,
+                    "medium",
+                    pre_humanize_score,
+                    post_humanize_score,
+                )
                 chapter_text = rewritten
 
                 if not skip_review:
@@ -537,14 +553,23 @@ def _run_pipeline(
                     _set_chapter_status(
                         db, run_id, ch_num, "humanize", 90, "Re-humanizing high-AI sections"
                     )
-                    rewritten = _consume_stream(
+                    pre_score_2 = detection.score
+                    rewritten = _drain_stream(
                         stream_humanize_text(
                             chapter_text,
                             intensity="aggressive",
                         ),
                         on_chunk=_on_humanize_chunk,
+                        cancel_check=cancel_event.is_set,
                     )
-                    _record_attempt(chapter_text, rewritten, "aggressive", None, None)
+                    post_score_2 = detect_ai_text(rewritten).score
+                    _record_attempt(
+                        chapter_text,
+                        rewritten,
+                        "aggressive",
+                        pre_score_2,
+                        post_score_2,
+                    )
                     chapter_text = rewritten
                     detection = detect_ai_text(chapter_text)
             else:

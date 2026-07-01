@@ -31,9 +31,6 @@ const phases = [
 export interface GenerationStreamProps {
   jobId: string;
   jobTopic?: string;
-  initialPhase?: string;
-  initialProgress?: number;
-  initialMessage?: string;
   onComplete?: () => void;
   onCancel?: () => void;
 }
@@ -41,24 +38,19 @@ export interface GenerationStreamProps {
 export function GenerationStream({
   jobId,
   jobTopic,
-  initialPhase,
-  initialProgress,
-  initialMessage,
   onComplete,
   onCancel,
 }: GenerationStreamProps) {
-  const [phase, setPhase] = React.useState(initialPhase ?? "queued");
-  const [progress, setProgress] = React.useState(initialProgress ?? 0);
-  const [message, setMessage] = React.useState(initialMessage ?? "Waiting…");
+  const [phase, setPhase] = React.useState("queued");
+  const [progress, setProgress] = React.useState(0);
+  const [message, setMessage] = React.useState("Waiting…");
   const [chapterStatuses, setChapterStatuses] = React.useState<
     Record<number, { status: string; progress: number; message: string }>
   >({});
   const [preview, setPreview] = React.useState("");
   const [previewChapter, setPreviewChapter] = React.useState<number | null>(null);
   const [previewPhase, setPreviewPhase] = React.useState<string | null>(null);
-  const [finished, setFinished] = React.useState(
-    initialPhase === "complete" || initialPhase === "error"
-  );
+  const [finished, setFinished] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [cancelling, setCancelling] = React.useState(false);
   const previewRef = React.useRef<HTMLDivElement | null>(null);

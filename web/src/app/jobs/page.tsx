@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSearchParams } from "next/navigation";
 import { useStore } from "@/stores/jobStore";
 import type { Job } from "@/lib/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -87,11 +88,16 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 
 export default function JobsPage() {
   const { jobs, loading, error, fetchJobs } = useStore();
+  const searchParams = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [view, setView] = useState<ViewMode>("table");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("updated_desc");
+  // Open the create form if the URL has ?new=1 (set by the command palette).
+  // Read from the URL once on mount; subsequent navigations don't reopen.
+  const initialNewFlag = searchParams.get("new") === "1";
+  const [shouldOpenCreate] = useState(initialNewFlag);
   const [topic, setTopic] = useState("");
   const [paperType, setPaperType] = useState("literature_review");
   const [citationStyle, setCitationStyle] = useState("apa");
@@ -109,6 +115,18 @@ export default function JobsPage() {
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  useEffect(() => {
+    if (shouldOpenCreate) {
+      setShowCreate(true);
+      // Strip the query param so reloads don't re-open the form unexpectedly.
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("new");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+  }, [shouldOpenCreate]);
 
   useKeyShortcut("n", () => setShowCreate((v) => !v), { meta: false });
 
@@ -446,6 +464,7 @@ export default function JobsPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search jobs..."
               className="pl-9"
+              data-shortcut-focus
             />
           </div>
           <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-0.5">
