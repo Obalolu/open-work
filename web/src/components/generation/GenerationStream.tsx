@@ -56,14 +56,18 @@ export function GenerationStream({
   const [preview, setPreview] = React.useState("");
   const [previewChapter, setPreviewChapter] = React.useState<number | null>(null);
   const [previewPhase, setPreviewPhase] = React.useState<string | null>(null);
-  const [finished, setFinished] = React.useState(
-    initialPhase === "complete" || initialPhase === "error"
-  );
+  const [finished, setFinished] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [cancelling, setCancelling] = React.useState(false);
   const previewRef = React.useRef<HTMLDivElement | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const completedRef = React.useRef(false);
+
+  // The `initialPhase` prop is unused: the only caller (the Job detail page)
+  // doesn't pass it, and the stream will deliver a snapshot event on connect
+  // that we use to populate the phase. Keeping the prop in the API in case
+  // a future caller wants to skip the snapshot.
+  void initialPhase;
 
   React.useEffect(() => {
     if (finished) return;

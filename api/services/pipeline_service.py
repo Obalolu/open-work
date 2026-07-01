@@ -51,11 +51,16 @@ def _run_async(coro):
 
 
 def _drain_stream(
-    agen: Any, *, on_chunk: Any | None = None
+    agen: Any,
+    *,
+    on_chunk: Any | None = None,
+    cancel_check: Any | None = None,
 ) -> str:
     """Drain an async generator of text chunks, optionally invoking
-    on_chunk(str) for each piece. Returns the concatenated string. Safe to call
-    from the background pipeline thread.
+    on_chunk(str) for each piece. Returns the concatenated string. If
+    `cancel_check` is provided, it is called between chunks; returning a
+    truthy value aborts the drain and returns the partial text seen so far.
+    Safe to call from the background pipeline thread.
     """
     pieces: list[str] = []
 
@@ -64,6 +69,8 @@ def _drain_stream(
             pieces.append(chunk)
             if on_chunk is not None:
                 on_chunk(chunk)
+            if cancel_check is not None and cancel_check():
+                break
         return "".join(pieces)
 
     return _run_async(_drain())
@@ -409,6 +416,7 @@ def _run_pipeline(
                     previous_chapters=all_chapter_texts if all_chapter_texts else None,
                 ),
                 on_chunk=_on_write_chunk,
+                cancel_check=cancel_event.is_set,
             )
 
             # Phase 3: Replace {cite_XXX} with inline (Author, Year) for review/humanize
@@ -498,6 +506,7 @@ def _run_pipeline(
                         intensity="medium",
                     ),
                     on_chunk=_on_humanize_chunk,
+                    cancel_check=cancel_event.is_set,
                 )
                 post_humanize_score = detect_ai_text(rewritten).score
                 _record_attempt(
@@ -551,6 +560,7 @@ def _run_pipeline(
                             intensity="aggressive",
                         ),
                         on_chunk=_on_humanize_chunk,
+                        cancel_check=cancel_event.is_set,
                     )
                     post_score_2 = detect_ai_text(rewritten).score
                     _record_attempt(

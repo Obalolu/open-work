@@ -6,15 +6,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/Tooltip";
-import { useEffect, useState } from "react";
 import { useThemeCycle } from "@/hooks/useThemeCycle";
 
 export function ThemeToggle() {
   const { cycle, current, mounted } = useThemeCycle();
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
 
-  const label = !hydrated
+  const label = !mounted
     ? "Theme"
     : current === "system"
       ? "System"
@@ -22,7 +19,7 @@ export function ThemeToggle() {
         ? "Dark"
         : "Light";
 
-  const Icon = !hydrated
+  const Icon = !mounted
     ? Monitor
     : current === "system"
       ? Monitor
@@ -38,7 +35,7 @@ export function ThemeToggle() {
           className="relative inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-md border border-border bg-surface text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label={`Theme: ${label}. Click to change.`}
         >
-          {mounted || hydrated ? <Icon className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+          <Icon className="h-4 w-4" />
         </button>
       </TooltipTrigger>
       <TooltipContent>

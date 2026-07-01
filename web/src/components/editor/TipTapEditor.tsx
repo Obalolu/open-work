@@ -62,31 +62,35 @@ export interface TipTapEditorProps {
   autosaveMs?: number;
 }
 
-const extensions = [
-  StarterKit.configure({
-    codeBlock: {
-      HTMLAttributes: { class: "tiptap-codeblock" },
-    },
-  }),
-  Placeholder.configure({ placeholder: "Start writing your chapter…" }),
-  Link.configure({ openOnClick: false, autolink: true }),
-  Highlight,
-  TaskList,
-  TaskItem.configure({ nested: true }),
-  Typography,
-  CharacterCount,
-  Table.configure({ resizable: true }),
-  TableRow,
-  TableHeader,
-  TableCell,
-  Subscript,
-  Superscript,
-];
+const DEFAULT_PLACEHOLDER = "Start writing your chapter…";
+
+function buildExtensions(placeholder: string) {
+  return [
+    StarterKit.configure({
+      codeBlock: {
+        HTMLAttributes: { class: "tiptap-codeblock" },
+      },
+    }),
+    Placeholder.configure({ placeholder }),
+    Link.configure({ openOnClick: false, autolink: true }),
+    Highlight,
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Typography,
+    CharacterCount,
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Subscript,
+    Superscript,
+  ];
+}
 
 export function TipTapEditor({
   initialContent,
   editable = false,
-  placeholder = "Start writing…",
+  placeholder = DEFAULT_PLACEHOLDER,
   className,
   onSave,
   onCancel,
@@ -98,6 +102,8 @@ export function TipTapEditor({
   const [dirty, setDirty] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const extensions = React.useMemo(() => buildExtensions(placeholder), [placeholder]);
 
   const editor = useEditor({
     extensions,
