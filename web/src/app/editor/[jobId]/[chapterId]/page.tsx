@@ -272,6 +272,7 @@ export default function EditorPage() {
                         onChange={(e) => setSourceSearch(e.target.value)}
                         placeholder="Search sources by title or author…"
                         className="pl-9"
+                        data-shortcut-focus
                       />
                     </div>
                   )}

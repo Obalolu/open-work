@@ -446,6 +446,7 @@ export default function JobsPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search jobs..."
               className="pl-9"
+              data-shortcut-focus
             />
           </div>
           <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-0.5">

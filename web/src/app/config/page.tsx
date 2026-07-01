@@ -401,7 +401,26 @@ function LlmSettings({ config }: { config: AppConfig | null }) {
               >
                 {showKey ? <EyeOff /> : <Eye />}
               </Button>
-              <Button variant="outline">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const h = await api.health.get();
+                    toast.success(
+                      h.llm_configured
+                        ? "API reachable"
+                        : "API reachable but no LLM key configured",
+                      { description: `DB: ${h.db_ok ? "ok" : "down"}` }
+                    );
+                  } catch (e) {
+                    toast.error("API unreachable", {
+                      description:
+                        e instanceof Error ? e.message : String(e),
+                    });
+                  }
+                }}
+                title="Test API connection"
+              >
                 <FlaskConical />
                 Test
               </Button>

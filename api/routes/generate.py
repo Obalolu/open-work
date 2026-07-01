@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.database import get_db
+from api.models import Chapter
 from api.schemas import ChapterGenStatus, GenerateRequest, GenerationStatus
 from api.services import job_service, pipeline_service
 from api.services.pipeline_service import (
@@ -41,8 +42,6 @@ def start_generation(
     chapters = data.chapters
     if not chapters:
         chapters = job_service.sync_chapters_from_output(db, job_id) or []
-        from api.models import Chapter
-
         db_chapters = db.query(Chapter).filter(Chapter.job_id == job_id).all()
         chapters = [ch.chapter_number for ch in db_chapters]
 
@@ -103,8 +102,6 @@ def get_generation_status(job_id: str, db: Session = Depends(get_db)):
             chapter_status=[],
         )
 
-    from api.models import Chapter
-
     chapters = (
         db.query(Chapter)
         .filter(Chapter.job_id == job_id)
@@ -112,11 +109,9 @@ def get_generation_status(job_id: str, db: Session = Depends(get_db)):
         .all()
     )
 
-    import json as _json
-
     try:
-        run_statuses: dict = _json.loads(active.chapter_status_json or "{}")
-    except _json.JSONDecodeError:
+        run_statuses: dict = json.loads(active.chapter_status_json or "{}")
+    except json.JSONDecodeError:
         run_statuses = {}
 
     chapter_status = []

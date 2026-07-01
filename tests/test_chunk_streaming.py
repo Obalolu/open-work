@@ -69,6 +69,36 @@ def test_subscribe_does_not_cross_runs():
     pipeline_service.unsubscribe_from_run("b", b)
 
 
+def test_publish_chunk_helper_shape():
+    run_id = "run-helper"
+    q = pipeline_service.subscribe_to_run(run_id)
+    try:
+        pipeline_service._publish_chunk(run_id, 1, "writing", "alpha ")
+        pipeline_service._publish_chunk(run_id, 1, "humanize", "beta")
+        first = q.get(timeout=2)
+        second = q.get(timeout=2)
+        assert first["type"] == "chunk"
+        assert first["chapter"] == 1
+        assert first["phase"] == "writing"
+        assert first["text"] == "alpha "
+        assert second["phase"] == "humanize"
+        assert second["text"] == "beta"
+    finally:
+        pipeline_service.unsubscribe_from_run(run_id, q)
+
+
+def test_drain_stream_concatenates_and_invokes_callback():
+    pieces: list[str] = []
+
+    async def _agen():
+        for chunk in ("Hello, ", "world", "!"):
+            yield chunk
+
+    result = pipeline_service._drain_stream(_agen(), on_chunk=pieces.append)
+    assert result == "Hello, world!"
+    assert pieces == ["Hello, ", "world", "!"]
+
+
 def test_chunk_event_published_via_set_chapter_status(test_db):
     import api.models  # noqa: F401  -- ensure tables are registered
 
@@ -123,27 +153,31 @@ def test_stream_endpoint_serves_chunk_events(client, test_db):
     # Pre-subscribe so the SSE handler picks up our publishes
     q = pipeline_service.subscribe_to_run("run-sse")
 
+    # Handshake: signal once we've attached to the queue, then publish
+    attached = threading.Event()
+    done = threading.Event()
+
     def _publisher():
-        # Give the SSE handler a moment to attach to the queue
-        time.sleep(0.2)
-        pipeline_service._publish_event(
-            "run-sse",
-            {"type": "chunk", "chapter": 1, "phase": "writing", "text": "Hello world"},
+        attached.wait(timeout=2)
+        pipeline_service._publish_chunk(
+            "run-sse", 1, "writing", "Hello world"
         )
-        time.sleep(0.05)
         pipeline_service._publish_event("run-sse", {"type": "complete"})
+        done.set()
 
     threading.Thread(target=_publisher, daemon=True).start()
 
     try:
         with client.stream("GET", "/api/jobs/job-sse/generate/stream") as res:
             assert res.status_code == 200
+            # Tell the publisher it can fire now (best effort — race-safe)
+            attached.set()
             buffer = ""
             saw_chunk = False
             saw_complete = False
-            deadline = time.time() + 5
+            deadline = time.monotonic() + 5
             for raw in res.iter_bytes():
-                if time.time() > deadline:
+                if time.monotonic() > deadline:
                     break
                 buffer += raw.decode("utf-8", errors="ignore")
                 for line in buffer.split("\n\n"):
@@ -165,4 +199,5 @@ def test_stream_endpoint_serves_chunk_events(client, test_db):
         assert saw_chunk, "did not receive chunk event via SSE"
         assert saw_complete, "did not receive complete event via SSE"
     finally:
+        done.set()
         pipeline_service.unsubscribe_from_run("run-sse", q)

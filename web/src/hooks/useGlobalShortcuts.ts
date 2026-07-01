@@ -2,8 +2,8 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { useKeyShortcut } from "@/hooks/useKeyShortcut";
+import { useThemeCycle } from "@/hooks/useThemeCycle";
 
 /**
  * Global keyboard shortcuts. Mounted once in the Providers tree.
@@ -25,25 +25,23 @@ export function useGlobalShortcuts({
   onShowHelp: () => void;
 }) {
   const router = useRouter();
-  const { setTheme, theme } = useTheme();
+  const { cycle: cycleTheme } = useThemeCycle();
 
-  useKeyShortcut("/", () => {
-    const target = document.querySelector<HTMLInputElement>(
-      "input[data-shortcut-focus], input[type='search']"
-    );
-    target?.focus();
-    target?.select();
-  });
+  useKeyShortcut(
+    (e) => e.key === "/",
+    () => {
+      const target = document.querySelector<HTMLInputElement>(
+        "input[data-shortcut-focus], input[type='search']"
+      );
+      if (!target) return;
+      target.focus();
+      target.select();
+    }
+  );
 
   useKeyShortcut("?", () => onShowHelp());
 
-  useKeyShortcut("t", () => {
-    const order = ["light", "dark", "system"] as const;
-    const current = (theme ?? "system") as (typeof order)[number];
-    const idx = order.indexOf(current);
-    const next = order[(idx + 1) % order.length];
-    setTheme(next);
-  });
+  useKeyShortcut("t", cycleTheme);
 
   // "G then X" sequence
   useEffect(() => {
@@ -51,7 +49,12 @@ export function useGlobalShortcuts({
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
         return;
       }
       const now = Date.now();
