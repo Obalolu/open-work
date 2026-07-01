@@ -31,9 +31,6 @@ const phases = [
 export interface GenerationStreamProps {
   jobId: string;
   jobTopic?: string;
-  initialPhase?: string;
-  initialProgress?: number;
-  initialMessage?: string;
   onComplete?: () => void;
   onCancel?: () => void;
 }
@@ -41,15 +38,12 @@ export interface GenerationStreamProps {
 export function GenerationStream({
   jobId,
   jobTopic,
-  initialPhase,
-  initialProgress,
-  initialMessage,
   onComplete,
   onCancel,
 }: GenerationStreamProps) {
-  const [phase, setPhase] = React.useState(initialPhase ?? "queued");
-  const [progress, setProgress] = React.useState(initialProgress ?? 0);
-  const [message, setMessage] = React.useState(initialMessage ?? "Waiting…");
+  const [phase, setPhase] = React.useState("queued");
+  const [progress, setProgress] = React.useState(0);
+  const [message, setMessage] = React.useState("Waiting…");
   const [chapterStatuses, setChapterStatuses] = React.useState<
     Record<number, { status: string; progress: number; message: string }>
   >({});
@@ -62,12 +56,6 @@ export function GenerationStream({
   const previewRef = React.useRef<HTMLDivElement | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const completedRef = React.useRef(false);
-
-  // The `initialPhase` prop is unused: the only caller (the Job detail page)
-  // doesn't pass it, and the stream will deliver a snapshot event on connect
-  // that we use to populate the phase. Keeping the prop in the API in case
-  // a future caller wants to skip the snapshot.
-  void initialPhase;
 
   React.useEffect(() => {
     if (finished) return;
